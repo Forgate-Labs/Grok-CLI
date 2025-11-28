@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="GrokCLI.Tests/GrokCLI.Tests.csproj" />
+  <Project Path="GrokCLI.tui/GrokCLI.tui.csproj" />
+</Solution>

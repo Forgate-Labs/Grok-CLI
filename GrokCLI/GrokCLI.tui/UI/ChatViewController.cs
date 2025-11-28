@@ -1,0 +1,122 @@
+using GrokCLI.Services;
+using OpenAI.Chat;
+using Terminal.Gui;
+
+namespace GrokCLI.UI;
+
+public class ChatViewController
+{
+    private readonly IChatService _chatService;
+    private readonly List<ChatMessage> _conversation;
+    private readonly TextView _chatView;
+    private readonly TextField _inputView;
+    private readonly Label _processingLabel;
+    private readonly bool _isEnabled;
+
+    public ChatViewController(
+        IChatService chatService,
+        TextView chatView,
+        TextField inputView,
+        Label processingLabel,
+        bool isEnabled)
+    {
+        _chatService = chatService;
+        _conversation = new List<ChatMessage>();
+        _chatView = chatView;
+        _inputView = inputView;
+        _processingLabel = processingLabel;
+        _isEnabled = isEnabled;
+
+        // Subscribe to ChatService events
+        _chatService.OnTextReceived += OnTextReceived;
+        _chatService.OnToolCalled += OnToolCalled;
+        _chatService.OnToolResult += OnToolResult;
+    }
+
+    public async Task SendMessageAsync()
+    {
+        if (!_isEnabled) return;
+        if (string.IsNullOrWhiteSpace(_inputView.Text.ToString())) return;
+
+        var userText = _inputView.Text.ToString()!.Trim();
+        _inputView.Text = "";
+        Application.Refresh();
+
+        // Add user message to the UI
+        AppendToChat($"\n[You]: {userText}\n");
+        AppendToChat("[Grok]: ");
+
+        // Disable input while processing
+        _inputView.ReadOnly = true;
+        _processingLabel.Text = "thinking...";
+        Application.Refresh();
+
+        try
+        {
+            await _chatService.SendMessageAsync(userText, _conversation);
+            AppendToChat("\n");
+        }
+        catch (Exception ex)
+        {
+            AppendToChat($"\nError: {ex.Message}\n");
+        }
+        finally
+        {
+            _inputView.ReadOnly = false;
+            _processingLabel.Text = "";
+            Application.MainLoop.Invoke(() =>
+            {
+                _inputView.SetFocus();
+                Application.Refresh();
+            });
+        }
+    }
+
+    public void ClearChat()
+    {
+        if (!_isEnabled) return;
+        _chatView.Text = "";
+        _conversation.Clear();
+    }
+
+    public void ShowSystemMessage(string message)
+    {
+        AppendToChat(message);
+        Application.Refresh();
+    }
+
+    private void OnTextReceived(string text)
+    {
+        AppendToChat(text);
+        Application.MainLoop.Invoke(() => Application.Refresh());
+    }
+
+    private void OnToolCalled(string toolName, string args)
+    {
+        if (string.IsNullOrEmpty(args))
+        {
+            // First notification - only the name
+            AppendToChat($"\n🔧 [Tool: {toolName}]\n");
+        }
+        else
+        {
+            // Second notification - with arguments
+            AppendToChat($"📋 Arguments:\n{args}\n");
+        }
+        Application.MainLoop.Invoke(() => Application.Refresh());
+    }
+
+    private void OnToolResult(string toolName, string result)
+    {
+        AppendToChat($"✅ Result:\n{result}\n\n");
+        Application.MainLoop.Invoke(() => Application.Refresh());
+    }
+
+    private void AppendToChat(string text)
+    {
+        var current = _chatView.Text.ToString() ?? "";
+        _chatView.Text = current + text;
+        _chatView.MoveEnd();
+        _chatView.SetNeedsDisplay();
+    }
+}
