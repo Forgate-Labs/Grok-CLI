@@ -1,14 +1,20 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using GrokCLI.Services;
 using GrokCLI.Tools;
 using GrokCLI.UI;
 using Terminal.Gui;
+using GrokCLI.tui.Tools;
 
 var services = new ServiceCollection();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
+services.AddSingleton<ITool, TestTool>();
+
+Console.OutputEncoding = new UTF8Encoding(false);
+Console.InputEncoding = new UTF8Encoding(false);
 
 var apiKey = Environment.GetEnvironmentVariable("XAI_API_KEY");
 if (string.IsNullOrWhiteSpace(apiKey))

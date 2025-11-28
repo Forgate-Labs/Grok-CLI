@@ -54,13 +54,13 @@ public class CodeExecutionTool : ITool
             await process.WaitForExitAsync();
 
             if (process.ExitCode != 0)
-                return ToolExecutionResult.CreateError(error);
+                return ToolExecutionResult.CreateError(error, output, process.ExitCode);
 
-            return ToolExecutionResult.CreateSuccess(output);
+            return ToolExecutionResult.CreateSuccess(output, error, process.ExitCode);
         }
         catch (Exception ex)
         {
-            return ToolExecutionResult.CreateError($"Error executing code: {ex.Message}");
+            return ToolExecutionResult.CreateError($"Error executing code: {ex.Message}", exitCode: -1);
         }
     }
 }

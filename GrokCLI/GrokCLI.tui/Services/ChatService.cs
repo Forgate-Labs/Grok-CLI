@@ -42,6 +42,7 @@ public class ChatService : IChatService
         while (continueLoop)
         {
             var assistantBuffer = new StringBuilder();
+            char? pendingHighSurrogate = null;
             var toolCallsInfo = new Dictionary<int, ToolCallInfo>();
             var displayedTools = new HashSet<int>();
 
@@ -92,9 +93,16 @@ public class ChatService : IChatService
                 if (update.ContentUpdate.Count > 0)
                 {
                     var text = update.ContentUpdate[0].Text;
-                    assistantBuffer.Append(text);
-                    OnTextReceived?.Invoke(text);
+                    var processed = ProcessChunk(text, ref pendingHighSurrogate);
+                    assistantBuffer.Append(processed);
+                    OnTextReceived?.Invoke(processed);
                 }
+            }
+
+            if (pendingHighSurrogate.HasValue)
+            {
+                assistantBuffer.Append('\uFFFD');
+                pendingHighSurrogate = null;
             }
 
             // If there are tool calls, execute and continue the loop
@@ -126,10 +134,11 @@ public class ChatService : IChatService
                     var result = await _toolExecutor.ExecuteAsync(toolInfo.Name, argsJson);
 
                     var resultText = result.Success ? result.Output : result.Error;
+                    var resultPayload = result.ToModelPayload();
                     OnToolResult?.Invoke(toolInfo.Name, resultText);
 
                     // Add result to conversation
-                    conversation.Add(new ToolChatMessage(toolInfo.Id, resultText));
+                    conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
                 }
 
                 // Continue loop to process results
@@ -141,6 +150,68 @@ public class ChatService : IChatService
                 conversation.Add(new AssistantChatMessage(assistantBuffer.ToString()));
                 continueLoop = false;
             }
+        }
+
+        static string ProcessChunk(string chunk, ref char? pendingHighSurrogate)
+        {
+            var builder = new StringBuilder();
+            var index = 0;
+
+            if (pendingHighSurrogate.HasValue)
+            {
+                var high = pendingHighSurrogate.Value;
+                pendingHighSurrogate = null;
+
+                if (chunk.Length > 0 && char.IsLowSurrogate(chunk[0]))
+                {
+                    builder.Append(high);
+                    builder.Append(chunk[0]);
+                    index = 1;
+                }
+                else
+                {
+                    builder.Append('\uFFFD');
+                }
+            }
+
+            while (index < chunk.Length)
+            {
+                var current = chunk[index];
+
+                if (char.IsHighSurrogate(current))
+                {
+                    if (index + 1 < chunk.Length && char.IsLowSurrogate(chunk[index + 1]))
+                    {
+                        builder.Append(current);
+                        builder.Append(chunk[index + 1]);
+                        index += 2;
+                        continue;
+                    }
+
+                    if (index + 1 == chunk.Length)
+                    {
+                        pendingHighSurrogate = current;
+                        index++;
+                        continue;
+                    }
+
+                    builder.Append('\uFFFD');
+                    index++;
+                    continue;
+                }
+
+                if (char.IsLowSurrogate(current))
+                {
+                    builder.Append('\uFFFD');
+                    index++;
+                    continue;
+                }
+
+                builder.Append(current);
+                index++;
+            }
+
+            return builder.ToString();
         }
     }
 }

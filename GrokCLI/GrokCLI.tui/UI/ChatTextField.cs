@@ -30,6 +30,25 @@ public class ChatTextField : TextField
             return true;
         }
 
+        if (kb.KeyValue > 0 && !char.IsControl((char)kb.KeyValue))
+        {
+            var mappedChar = (char)kb.KeyValue;
+            if (kb.IsShift && mappedChar == '/')
+                mappedChar = '?';
+
+            var modifiers = new KeyModifiers
+            {
+                Shift = kb.IsShift,
+                Alt = kb.IsAlt,
+                Ctrl = kb.IsCtrl,
+                Capslock = kb.IsCapslock,
+                Numlock = kb.IsNumlock,
+                Scrolllock = kb.IsScrolllock
+            };
+
+            return base.ProcessKey(new KeyEvent((Key)mappedChar, modifiers));
+        }
+
         return base.ProcessKey(kb);
     }
 }
