@@ -13,6 +13,9 @@ services.AddSingleton<ITool, WebSearchTool>();
 var apiKey = Environment.GetEnvironmentVariable("XAI_API_KEY");
 if (string.IsNullOrWhiteSpace(apiKey))
 {
+#if DEBUG
+    EnsureConfigInWorkingDirectory();
+#endif
     apiKey = LoadApiKeyFromConfig();
 }
 var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
@@ -71,6 +74,42 @@ string? LoadApiKeyFromConfig()
     }
     catch
     {
+    }
+
+    return null;
+}
+
+void EnsureConfigInWorkingDirectory()
+{
+    var workingDir = Directory.GetCurrentDirectory();
+    var fileName = "grok.config.json";
+    var sourcePath = FindConfigInAncestors(workingDir, fileName);
+    if (sourcePath == null)
+        return;
+
+    var destinationPath = Path.Combine(workingDir, fileName);
+    if (string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+        return;
+
+    try
+    {
+        File.Copy(sourcePath, destinationPath, true);
+    }
+    catch
+    {
+    }
+}
+
+string? FindConfigInAncestors(string startPath, string fileName)
+{
+    var directory = new DirectoryInfo(startPath);
+    while (directory != null)
+    {
+        var candidate = Path.Combine(directory.FullName, fileName);
+        if (File.Exists(candidate))
+            return candidate;
+
+        directory = directory.Parent;
     }
 
     return null;

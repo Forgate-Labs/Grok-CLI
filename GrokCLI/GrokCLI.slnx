@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="GrokCLI.tui/grok.config.json" />
+  </Folder>
   <Project Path="GrokCLI.Tests/GrokCLI.Tests.csproj" />
   <Project Path="GrokCLI.tui/GrokCLI.tui.csproj" />
 </Solution>
