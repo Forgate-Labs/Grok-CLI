@@ -332,6 +332,7 @@ public class SimpleChatViewController
     {
         var durationText = GetDurationText();
         WriteDoneLine(durationText);
+        _sessionStopwatch.Restart();
     }
 
     private void RenderChangeDirectorySummary(ToolResultEvent toolEvent)

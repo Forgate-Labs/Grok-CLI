@@ -324,6 +324,7 @@ public class CustomChatViewController
     {
         var durationText = GetDurationText();
         AddDoneLine(durationText);
+        _sessionStopwatch.Restart();
     }
 
     private void RenderChangeDirectorySummary(ToolResultEvent toolEvent)
