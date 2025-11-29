@@ -9,7 +9,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: secrets
+    environment: nuget
     permissions:
       contents: write
 
