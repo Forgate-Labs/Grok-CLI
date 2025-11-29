@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using GrokCLI.Models;
 using GrokCLI.Tools;
 using OpenAI.Chat;
@@ -134,8 +136,15 @@ public class ChatService : IChatService
                     var result = await _toolExecutor.ExecuteAsync(toolInfo.Name, argsJson);
 
                     var resultText = result.Success ? result.Output : result.Error;
+                    var displayText = resultText;
+                    if (result.Success && toolInfo.Name == "read_local_file")
+                    {
+                        var path = ExtractPath(argsJson) ?? "unknown";
+                        var tokenCount = EstimateTokenCount(result.Output);
+                        displayText = $"{path} ({tokenCount} tokens)";
+                    }
                     var resultPayload = result.ToModelPayload();
-                    OnToolResult?.Invoke(toolInfo.Name, resultText);
+                    OnToolResult?.Invoke(toolInfo.Name, displayText);
 
                     // Add result to conversation
                     conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
@@ -212,6 +221,29 @@ public class ChatService : IChatService
             }
 
             return builder.ToString();
+        }
+
+        static string? ExtractPath(string argsJson)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(argsJson);
+                if (doc.RootElement.TryGetProperty("path", out var pathProp))
+                    return pathProp.GetString();
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        static int EstimateTokenCount(string content)
+        {
+            if (string.IsNullOrEmpty(content))
+                return 0;
+
+            return Regex.Matches(content, @"\S+").Count;
         }
     }
 }

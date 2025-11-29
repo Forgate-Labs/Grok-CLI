@@ -1,3 +1,4 @@
+using System.IO;
 using Terminal.Gui;
 
 namespace GrokCLI.UI;
@@ -8,6 +9,7 @@ public class ChatWindow
     private readonly TextView _chatView;
     private readonly ChatTextField _inputView;
     private readonly Label _processingLabel;
+    private readonly Label _workingDirLabel;
     private StatusBar? _statusBar;
     private ChatViewController? _controller;
 
@@ -59,6 +61,16 @@ public class ChatWindow
             Height = 1,
             TextAlignment = TextAlignment.Left
         };
+
+        var workingDir = Directory.GetCurrentDirectory();
+        _workingDirLabel = new Label(workingDir)
+        {
+            X = Pos.AnchorEnd(workingDir.Length),
+            Y = Pos.Bottom(_chatView),
+            Width = workingDir.Length,
+            Height = 1,
+            TextAlignment = TextAlignment.Right
+        };
     }
 
     public void Initialize(Toplevel top, ChatViewController controller, bool isLocked)
@@ -94,7 +106,7 @@ public class ChatWindow
                 new StatusItem(Key.Null, "Model: grok-4-1-fast-reasoning", null)
             });
 
-        _window.Add(_chatView, _processingLabel, _inputView);
+        _window.Add(_chatView, _processingLabel, _workingDirLabel, _inputView);
         top.Add(_window, _statusBar);
 
         // Set initial focus on the input field when the window is ready

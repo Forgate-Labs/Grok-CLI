@@ -11,6 +11,7 @@ var services = new ServiceCollection();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
+services.AddSingleton<ITool, LocalFileReadTool>();
 services.AddSingleton<ITool, TestTool>();
 
 Console.OutputEncoding = new UTF8Encoding(false);
