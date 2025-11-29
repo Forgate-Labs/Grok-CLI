@@ -13,15 +13,17 @@ public class ShellExecutor : IShellExecutor
 
     public async Task<ShellResult> ExecuteAsync(
         string command,
-        int timeoutSeconds = 30)
+        int timeoutSeconds = 30,
+        CancellationToken cancellationToken = default)
     {
-        return await ExecuteAsync(command, Directory.GetCurrentDirectory(), timeoutSeconds);
+        return await ExecuteAsync(command, Directory.GetCurrentDirectory(), timeoutSeconds, cancellationToken);
     }
 
     public async Task<ShellResult> ExecuteAsync(
         string command,
         string workingDirectory,
-        int timeoutSeconds = 30)
+        int timeoutSeconds = 30,
+        CancellationToken cancellationToken = default)
     {
         var processInfo = _platformService.CreateShellProcess(command);
         processInfo.WorkingDirectory = workingDirectory;
@@ -37,6 +39,18 @@ public class ShellExecutor : IShellExecutor
             using var process = new Process { StartInfo = processInfo };
 
             process.Start();
+
+            using var registration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(true);
+                }
+                catch
+                {
+                }
+            });
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
@@ -60,6 +74,8 @@ public class ShellExecutor : IShellExecutor
                 return result;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             result.Output = await outputTask;
             result.Error = await errorTask;
             result.ExitCode = process.ExitCode;
@@ -67,6 +83,9 @@ public class ShellExecutor : IShellExecutor
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException)
+                throw;
+
             result.Error = $"Error executing command: {ex.Message}";
             result.ExitCode = -1;
             result.Success = false;

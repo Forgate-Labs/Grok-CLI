@@ -36,10 +36,12 @@ public class CodeExecutionTool : ITool
         );
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var code = jsonDoc.RootElement.GetProperty("code").GetString() ?? "";
 
@@ -73,14 +75,33 @@ public class CodeExecutionTool : ITool
             };
 
             process.Start();
+
+            using var registration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(true);
+                }
+                catch
+                {
+                }
+            });
+
             var output = await process.StandardOutput.ReadToEndAsync();
             var error = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
+            await process.WaitForExitAsync(cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (process.ExitCode != 0)
                 return ToolExecutionResult.CreateError(error, output, process.ExitCode);
 
             return ToolExecutionResult.CreateSuccess(output, error, process.ExitCode);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

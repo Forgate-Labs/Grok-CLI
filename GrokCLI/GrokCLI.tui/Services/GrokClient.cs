@@ -19,8 +19,9 @@ public class GrokClient : IGrokClient
 
     public IAsyncEnumerable<StreamingChatCompletionUpdate> StreamChatAsync(
         IEnumerable<ChatMessage> messages,
-        ChatCompletionOptions options)
+        ChatCompletionOptions options,
+        CancellationToken cancellationToken = default)
     {
-        return _chatClient.CompleteChatStreamingAsync(messages, options);
+        return _chatClient.CompleteChatStreamingAsync(messages, options, cancellationToken);
     }
 }

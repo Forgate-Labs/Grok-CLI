@@ -26,122 +26,142 @@ public class ChatService : IChatService
         _prePrompt = prePrompt;
     }
 
-    public async Task SendMessageAsync(string userMessage, List<ChatMessage> conversation)
+    public async Task SendMessageAsync(
+        string userMessage,
+        List<ChatMessage> conversation,
+        CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(_prePrompt) && conversation.Count == 0)
+        var conversationStartIndex = conversation.Count;
+
+        try
         {
-            conversation.Add(new SystemChatMessage(_prePrompt));
-        }
-
-        conversation.Add(new UserChatMessage(userMessage));
-
-        var options = new ChatCompletionOptions
-        {
-            ToolChoice = ChatToolChoice.CreateAutoChoice()
-        };
-
-        foreach (var tool in _tools)
-        {
-            options.Tools.Add(tool.GetChatTool());
-        }
-
-        bool continueLoop = true;
-        while (continueLoop)
-        {
-            var assistantBuffer = new StringBuilder();
-            char? pendingHighSurrogate = null;
-            var toolCallsInfo = new Dictionary<int, ToolCallInfo>();
-
-            var completionUpdates = _grokClient.StreamChatAsync(conversation, options);
-
-            await foreach (var update in completionUpdates)
+            if (!string.IsNullOrWhiteSpace(_prePrompt) && conversation.Count == 0)
             {
-                if (update.ToolCallUpdates != null && update.ToolCallUpdates.Count > 0)
+                conversation.Add(new SystemChatMessage(_prePrompt));
+            }
+
+            conversation.Add(new UserChatMessage(userMessage));
+
+            var options = new ChatCompletionOptions
+            {
+                ToolChoice = ChatToolChoice.CreateAutoChoice()
+            };
+
+            foreach (var tool in _tools)
+            {
+                options.Tools.Add(tool.GetChatTool());
+            }
+
+            var continueLoop = true;
+            while (continueLoop)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var assistantBuffer = new StringBuilder();
+                char? pendingHighSurrogate = null;
+                var toolCallsInfo = new Dictionary<int, ToolCallInfo>();
+
+                var completionUpdates = _grokClient.StreamChatAsync(conversation, options, cancellationToken);
+
+                await foreach (var update in completionUpdates.WithCancellation(cancellationToken))
                 {
-                    foreach (var toolUpdate in update.ToolCallUpdates)
+                    if (update.ToolCallUpdates != null && update.ToolCallUpdates.Count > 0)
                     {
-                        var toolIndex = toolUpdate.Index;
-
-                        if (!toolCallsInfo.ContainsKey(toolIndex))
+                        foreach (var toolUpdate in update.ToolCallUpdates)
                         {
-                            toolCallsInfo[toolIndex] = new ToolCallInfo(
-                                toolUpdate.ToolCallId ?? "",
-                                toolUpdate.FunctionName ?? ""
-                            );
+                            var toolIndex = toolUpdate.Index;
+
+                            if (!toolCallsInfo.ContainsKey(toolIndex))
+                            {
+                                toolCallsInfo[toolIndex] = new ToolCallInfo(
+                                    toolUpdate.ToolCallId ?? "",
+                                    toolUpdate.FunctionName ?? ""
+                                );
+                            }
+
+                            if (!string.IsNullOrEmpty(toolUpdate.ToolCallId))
+                                toolCallsInfo[toolIndex].Id = toolUpdate.ToolCallId;
+
+                            if (!string.IsNullOrEmpty(toolUpdate.FunctionName))
+                                toolCallsInfo[toolIndex].Name = toolUpdate.FunctionName;
+
+                            if (toolUpdate.FunctionArgumentsUpdate != null)
+                            {
+                                toolCallsInfo[toolIndex].Arguments.Append(toolUpdate.FunctionArgumentsUpdate.ToString());
+                            }
                         }
+                    }
 
-                        if (!string.IsNullOrEmpty(toolUpdate.ToolCallId))
-                            toolCallsInfo[toolIndex].Id = toolUpdate.ToolCallId;
-
-                        if (!string.IsNullOrEmpty(toolUpdate.FunctionName))
-                            toolCallsInfo[toolIndex].Name = toolUpdate.FunctionName;
-
-                        if (toolUpdate.FunctionArgumentsUpdate != null)
-                        {
-                            toolCallsInfo[toolIndex].Arguments.Append(toolUpdate.FunctionArgumentsUpdate.ToString());
-                        }
+                    if (update.ContentUpdate.Count > 0)
+                    {
+                        var text = update.ContentUpdate[0].Text;
+                        var processed = ProcessChunk(text, ref pendingHighSurrogate);
+                        assistantBuffer.Append(processed);
+                        OnTextReceived?.Invoke(processed);
                     }
                 }
 
-                if (update.ContentUpdate.Count > 0)
+                if (pendingHighSurrogate.HasValue)
                 {
-                    var text = update.ContentUpdate[0].Text;
-                    var processed = ProcessChunk(text, ref pendingHighSurrogate);
-                    assistantBuffer.Append(processed);
-                    OnTextReceived?.Invoke(processed);
-                }
-            }
-
-            if (pendingHighSurrogate.HasValue)
-            {
-                assistantBuffer.Append('\uFFFD');
-                pendingHighSurrogate = null;
-            }
-
-            if (toolCallsInfo.Count > 0)
-            {
-                var hasWorkflowDone = toolCallsInfo.Values.Any(t => string.Equals(t.Name, "workflow_done", StringComparison.OrdinalIgnoreCase));
-
-                var assistantMsg = new AssistantChatMessage(assistantBuffer.ToString());
-                foreach (var kvp in toolCallsInfo)
-                {
-                    var toolInfo = kvp.Value;
-                    assistantMsg.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
-                        toolInfo.Id,
-                        toolInfo.Name,
-                        BinaryData.FromString(toolInfo.Arguments.ToString())
-                    ));
-                }
-                conversation.Add(assistantMsg);
-
-                foreach (var kvp in toolCallsInfo)
-                {
-                    var toolInfo = kvp.Value;
-                    var argsJson = toolInfo.Arguments.ToString();
-
-                    OnToolCalled?.Invoke(new ToolCallEvent(
-                        toolInfo.Name,
-                        toolInfo.Id,
-                        argsJson));
-
-                    var result = await _toolExecutor.ExecuteAsync(toolInfo.Name, argsJson);
-                    var resultPayload = result.ToModelPayload();
-                    OnToolResult?.Invoke(new ToolResultEvent(
-                        toolInfo.Name,
-                        toolInfo.Id,
-                        argsJson,
-                        result));
-
-                    conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
+                    assistantBuffer.Append('\uFFFD');
+                    pendingHighSurrogate = null;
                 }
 
-                continueLoop = !hasWorkflowDone;
+                if (toolCallsInfo.Count > 0)
+                {
+                    var hasWorkflowDone = toolCallsInfo.Values.Any(t => string.Equals(t.Name, "workflow_done", StringComparison.OrdinalIgnoreCase));
+
+                    var assistantMsg = new AssistantChatMessage(assistantBuffer.ToString());
+                    foreach (var kvp in toolCallsInfo)
+                    {
+                        var toolInfo = kvp.Value;
+                        assistantMsg.ToolCalls.Add(ChatToolCall.CreateFunctionToolCall(
+                            toolInfo.Id,
+                            toolInfo.Name,
+                            BinaryData.FromString(toolInfo.Arguments.ToString())
+                        ));
+                    }
+                    conversation.Add(assistantMsg);
+
+                    foreach (var kvp in toolCallsInfo)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var toolInfo = kvp.Value;
+                        var argsJson = toolInfo.Arguments.ToString();
+
+                        OnToolCalled?.Invoke(new ToolCallEvent(
+                            toolInfo.Name,
+                            toolInfo.Id,
+                            argsJson));
+
+                        var result = await _toolExecutor.ExecuteAsync(
+                            toolInfo.Name,
+                            argsJson,
+                            cancellationToken);
+                        var resultPayload = result.ToModelPayload();
+                        OnToolResult?.Invoke(new ToolResultEvent(
+                            toolInfo.Name,
+                            toolInfo.Id,
+                            argsJson,
+                            result));
+
+                        conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
+                    }
+
+                    continueLoop = !hasWorkflowDone;
+                }
+                else
+                {
+                    conversation.Add(new AssistantChatMessage(assistantBuffer.ToString()));
+                    continueLoop = false;
+                }
             }
-            else
-            {
-                conversation.Add(new AssistantChatMessage(assistantBuffer.ToString()));
-                continueLoop = false;
-            }
+        }
+        catch
+        {
+            TrimConversation(conversation, conversationStartIndex);
+            throw;
         }
 
         static string ProcessChunk(string chunk, ref char? pendingHighSurrogate)
@@ -204,6 +224,17 @@ public class ChatService : IChatService
             }
 
             return builder.ToString();
+        }
+    }
+
+    private static void TrimConversation(List<ChatMessage> conversation, int startIndex)
+    {
+        if (startIndex < 0)
+            return;
+
+        while (conversation.Count > startIndex)
+        {
+            conversation.RemoveAt(conversation.Count - 1);
         }
     }
 }

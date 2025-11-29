@@ -21,10 +21,12 @@ public class CompletionTool : ITool
         );
     }
 
-    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var payload = JsonSerializer.Serialize(new { status = "done" });
             if (!string.IsNullOrWhiteSpace(argumentsJson))
             {
@@ -36,6 +38,10 @@ public class CompletionTool : ITool
         catch (JsonException ex)
         {
             return Task.FromResult(ToolExecutionResult.CreateError($"Invalid JSON: {ex.Message}"));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

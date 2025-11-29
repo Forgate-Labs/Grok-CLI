@@ -35,10 +35,12 @@ public class ChangeDirectoryTool : ITool
         );
     }
 
-    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var path = jsonDoc.RootElement.GetProperty("path").GetString() ?? "";
 
@@ -75,6 +77,10 @@ public class ChangeDirectoryTool : ITool
         catch (DirectoryNotFoundException ex)
         {
             return Task.FromResult(ToolExecutionResult.CreateError(ex.Message));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

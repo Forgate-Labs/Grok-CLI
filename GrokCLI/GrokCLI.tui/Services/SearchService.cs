@@ -58,7 +58,7 @@ public class SearchService : ISearchService
         }
     }
 
-    public async Task<SearchResult> SearchAsync(SearchOptions options)
+    public async Task<SearchResult> SearchAsync(SearchOptions options, CancellationToken cancellationToken)
     {
         var resolvedPath = _workingDirService.ResolveRelativePath(options.SearchPath);
         options.SearchPath = resolvedPath;
@@ -73,19 +73,21 @@ public class SearchService : ISearchService
             };
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (_platformService.IsWindows)
         {
-            return await SearchWithPowerShellAsync(options);
+            return await SearchWithPowerShellAsync(options, cancellationToken);
         }
         else if (_platformService.IsLinux || _platformService.IsMacOS)
         {
             if (IsRipgrepAvailable())
             {
-                return await SearchWithRipgrepAsync(options);
+                return await SearchWithRipgrepAsync(options, cancellationToken);
             }
             else
             {
-                return await SearchWithGrepAsync(options);
+                return await SearchWithGrepAsync(options, cancellationToken);
             }
         }
         else
@@ -99,7 +101,7 @@ public class SearchService : ISearchService
         }
     }
 
-    private async Task<SearchResult> SearchWithRipgrepAsync(SearchOptions options)
+    private async Task<SearchResult> SearchWithRipgrepAsync(SearchOptions options, CancellationToken cancellationToken)
     {
         var args = new List<string>();
 
@@ -135,7 +137,11 @@ public class SearchService : ISearchService
             Platform = $"Linux/macOS (ripgrep)"
         };
 
-        var shellResult = await _shellExecutor.ExecuteAsync(command, options.SearchPath, options.TimeoutSeconds);
+        var shellResult = await _shellExecutor.ExecuteAsync(
+            command,
+            options.SearchPath,
+            options.TimeoutSeconds,
+            cancellationToken);
 
         if (shellResult.ExitCode == 0 || shellResult.ExitCode == 1)
         {
@@ -154,7 +160,7 @@ public class SearchService : ISearchService
         return result;
     }
 
-    private async Task<SearchResult> SearchWithGrepAsync(SearchOptions options)
+    private async Task<SearchResult> SearchWithGrepAsync(SearchOptions options, CancellationToken cancellationToken)
     {
         var args = new List<string>();
 
@@ -187,7 +193,11 @@ public class SearchService : ISearchService
             Platform = "Linux/macOS (grep)"
         };
 
-        var shellResult = await _shellExecutor.ExecuteAsync(command, options.SearchPath, options.TimeoutSeconds);
+        var shellResult = await _shellExecutor.ExecuteAsync(
+            command,
+            options.SearchPath,
+            options.TimeoutSeconds,
+            cancellationToken);
 
         if (shellResult.ExitCode == 0 || shellResult.ExitCode == 1)
         {
@@ -206,7 +216,7 @@ public class SearchService : ISearchService
         return result;
     }
 
-    private async Task<SearchResult> SearchWithPowerShellAsync(SearchOptions options)
+    private async Task<SearchResult> SearchWithPowerShellAsync(SearchOptions options, CancellationToken cancellationToken)
     {
         var psCommand = BuildPowerShellSearchCommand(options);
 
@@ -216,7 +226,11 @@ public class SearchService : ISearchService
             Platform = "Windows (PowerShell)"
         };
 
-        var shellResult = await _shellExecutor.ExecuteAsync(psCommand, options.SearchPath, options.TimeoutSeconds);
+        var shellResult = await _shellExecutor.ExecuteAsync(
+            psCommand,
+            options.SearchPath,
+            options.TimeoutSeconds,
+            cancellationToken);
 
         if (shellResult.Success)
         {

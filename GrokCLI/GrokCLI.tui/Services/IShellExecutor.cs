@@ -47,7 +47,7 @@ public interface IShellExecutor
     /// <param name="command">The command to execute</param>
     /// <param name="timeoutSeconds">Maximum time to wait for command completion</param>
     /// <returns>The result of the command execution</returns>
-    Task<ShellResult> ExecuteAsync(string command, int timeoutSeconds = 30);
+    Task<ShellResult> ExecuteAsync(string command, int timeoutSeconds = 30, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Executes a shell command in a specific working directory
@@ -56,5 +56,5 @@ public interface IShellExecutor
     /// <param name="workingDirectory">The directory to execute the command in</param>
     /// <param name="timeoutSeconds">Maximum time to wait for command completion</param>
     /// <returns>The result of the command execution</returns>
-    Task<ShellResult> ExecuteAsync(string command, string workingDirectory, int timeoutSeconds = 30);
+    Task<ShellResult> ExecuteAsync(string command, string workingDirectory, int timeoutSeconds = 30, CancellationToken cancellationToken = default);
 }

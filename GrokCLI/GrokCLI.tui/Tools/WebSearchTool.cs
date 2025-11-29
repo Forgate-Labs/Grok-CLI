@@ -26,8 +26,10 @@ public class WebSearchTool : ITool
         );
     }
 
-    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         return Task.FromResult(
             ToolExecutionResult.CreateError("Web search not implemented yet (local only)")
         );

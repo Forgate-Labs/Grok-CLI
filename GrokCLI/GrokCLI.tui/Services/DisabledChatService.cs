@@ -9,7 +9,7 @@ public class DisabledChatService : IChatService
     public event Action<ToolCallEvent>? OnToolCalled = delegate { };
     public event Action<ToolResultEvent>? OnToolResult = delegate { };
 
-    public Task SendMessageAsync(string userMessage, List<ChatMessage> conversation)
+    public Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }

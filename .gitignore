@@ -418,3 +418,4 @@ FodyWeavers.xsd
 *.msp
 /GrokCLI/GrokCLI.tui/grok.config.json
 GrokCLI/GrokCLI.tui/GROK.md
+GROK.md

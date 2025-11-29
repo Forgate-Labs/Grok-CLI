@@ -8,5 +8,5 @@ public interface ITool
     string Name { get; }
     string Description { get; }
     ChatTool GetChatTool();
-    Task<ToolExecutionResult> ExecuteAsync(string argumentsJson);
+    Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken);
 }

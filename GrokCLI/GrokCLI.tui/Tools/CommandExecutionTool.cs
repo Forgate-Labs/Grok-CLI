@@ -50,10 +50,12 @@ public class CommandExecutionTool : ITool
         );
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var root = jsonDoc.RootElement;
 
@@ -105,7 +107,8 @@ public class CommandExecutionTool : ITool
             var result = await _shellExecutor.ExecuteAsync(
                 command,
                 resolvedWorkingDirectory,
-                timeoutSeconds);
+                timeoutSeconds,
+                cancellationToken);
 
             if (result.Success)
             {
@@ -127,6 +130,10 @@ public class CommandExecutionTool : ITool
         catch (JsonException ex)
         {
             return ToolExecutionResult.CreateError($"Invalid JSON: {ex.Message}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

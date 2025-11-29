@@ -6,5 +6,6 @@ public interface IGrokClient
 {
     IAsyncEnumerable<StreamingChatCompletionUpdate> StreamChatAsync(
         IEnumerable<ChatMessage> messages,
-        ChatCompletionOptions options);
+        ChatCompletionOptions options,
+        CancellationToken cancellationToken = default);
 }

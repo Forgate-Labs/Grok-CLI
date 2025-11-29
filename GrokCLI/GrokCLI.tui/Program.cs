@@ -101,6 +101,20 @@ while (ui.IsRunning)
     {
         var key = Console.ReadKey(true);
 
+        if (key.Key == ConsoleKey.Escape)
+        {
+            if (controller.IsProcessing)
+            {
+                controller.CancelProcessing();
+            }
+            else
+            {
+                ui.ClearInput();
+            }
+
+            continue;
+        }
+
         if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
         {
             ui.InsertNewline();

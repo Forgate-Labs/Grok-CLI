@@ -15,8 +15,10 @@ namespace GrokCLI.tui.Tools
 
         public string Description => "Executes a test command.";
 
-        public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+        public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var code = "TESTE!!!!!";
 

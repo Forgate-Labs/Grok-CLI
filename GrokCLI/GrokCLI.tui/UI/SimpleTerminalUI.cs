@@ -213,6 +213,7 @@ public class SimpleTerminalUI
             }
         }
 
+
         PositionCursor();
     }
 

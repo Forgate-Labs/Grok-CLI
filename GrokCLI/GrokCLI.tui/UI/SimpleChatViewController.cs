@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using GrokCLI.Models;
 using GrokCLI.Services;
 using OpenAI.Chat;
@@ -16,6 +17,8 @@ public class SimpleChatViewController
     private ChatDisplayMode _displayMode;
     private readonly Stopwatch _sessionStopwatch;
     private readonly string _version;
+    private CancellationTokenSource? _cancellationTokenSource;
+    private bool _isProcessing;
 
     public SimpleChatViewController(
         IChatService chatService,
@@ -37,12 +40,24 @@ public class SimpleChatViewController
         _chatService.OnToolResult += OnToolResult;
     }
 
+    public bool IsProcessing => _isProcessing;
+
+    public void CancelProcessing()
+    {
+        _cancellationTokenSource?.Cancel();
+    }
+
     public async Task SendMessageAsync()
     {
         if (!_isEnabled) return;
+        if (_isProcessing) return;
 
         var userText = _ui.GetCurrentInput()?.Trim();
         if (string.IsNullOrWhiteSpace(userText)) return;
+
+        using var cts = new CancellationTokenSource();
+        _cancellationTokenSource = cts;
+        _isProcessing = true;
 
         _ui.HideInputLine();
 
@@ -54,8 +69,12 @@ public class SimpleChatViewController
 
         try
         {
-            await _chatService.SendMessageAsync(userText, _conversation);
+            await _chatService.SendMessageAsync(userText, _conversation, cts.Token);
             Console.WriteLine();
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("\nCanceled.");
         }
         catch (Exception ex)
         {
@@ -63,7 +82,10 @@ public class SimpleChatViewController
         }
         finally
         {
+            _cancellationTokenSource = null;
+            _isProcessing = false;
             _ui.SetProcessingStatus("");
+            _ui.ClearInput();
             _ui.ShowInputLine();
         }
     }
@@ -87,7 +109,7 @@ public class SimpleChatViewController
         Console.Clear();
         _ui.WriteLine($"Grok CLI {_version} - Agentic Mode");
         _ui.WriteLine($"Mode: {_displayMode} (type \"debug\" or \"normal\" to switch)");
-        _ui.WriteLine("Commands: Enter (send) | Ctrl+J (newline) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear) | logout (clear API key) | Ctrl+C (exit)");
+        _ui.WriteLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
         _ui.WriteLine("Model: grok-4-1-fast-reasoning");
         _ui.WriteLine("");
     }

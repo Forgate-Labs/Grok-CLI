@@ -27,10 +27,12 @@ public class LocalFileReadTool : ITool
         );
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var relativePath = jsonDoc.RootElement.GetProperty("path").GetString();
 
@@ -54,12 +56,16 @@ public class LocalFileReadTool : ITool
             if (fileInfo.Length > maxBytes)
                 return ToolExecutionResult.CreateError($"File is too large to read (limit {maxBytes} bytes)");
 
-            var content = await File.ReadAllTextAsync(targetPath);
+            var content = await File.ReadAllTextAsync(targetPath, cancellationToken);
             return ToolExecutionResult.CreateSuccess(content);
         }
         catch (JsonException)
         {
             return ToolExecutionResult.CreateError("Invalid arguments payload");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

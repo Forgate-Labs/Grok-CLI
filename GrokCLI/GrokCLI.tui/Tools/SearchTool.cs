@@ -59,7 +59,7 @@ public class SearchTool : ITool
         );
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
@@ -96,7 +96,7 @@ public class SearchTool : ITool
                     : false
             };
 
-            var result = await _searchService.SearchAsync(options);
+            var result = await _searchService.SearchAsync(options, cancellationToken);
 
             if (!result.Success)
             {
@@ -124,6 +124,10 @@ public class SearchTool : ITool
         catch (JsonException ex)
         {
             return ToolExecutionResult.CreateError($"Invalid JSON: {ex.Message}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -68,10 +68,12 @@ public class EditFileTool : ITool
         );
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var jsonDoc = JsonDocument.Parse(argumentsJson);
             var root = jsonDoc.RootElement;
 
@@ -162,6 +164,8 @@ public class EditFileTool : ITool
                         $"Unknown operation: {operation}. Valid operations are: replace, insert, append, delete, write");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!result.Success)
             {
                 return ToolExecutionResult.CreateError(result.Error ?? "Unknown error");
@@ -181,6 +185,10 @@ public class EditFileTool : ITool
         catch (JsonException ex)
         {
             return ToolExecutionResult.CreateError($"Invalid JSON: {ex.Message}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

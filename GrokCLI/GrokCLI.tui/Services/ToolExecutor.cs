@@ -12,7 +12,10 @@ public class ToolExecutor : IToolExecutor
         _tools = tools;
     }
 
-    public async Task<ToolExecutionResult> ExecuteAsync(string toolName, string argumentsJson)
+    public async Task<ToolExecutionResult> ExecuteAsync(
+        string toolName,
+        string argumentsJson,
+        CancellationToken cancellationToken)
     {
         var tool = _tools.FirstOrDefault(t => t.Name == toolName);
 
@@ -21,6 +24,6 @@ public class ToolExecutor : IToolExecutor
             return ToolExecutionResult.CreateError($"Tool '{toolName}' not found");
         }
 
-        return await tool.ExecuteAsync(argumentsJson);
+        return await tool.ExecuteAsync(argumentsJson, cancellationToken);
     }
 }

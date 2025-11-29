@@ -4,5 +4,8 @@ namespace GrokCLI.Services;
 
 public interface IToolExecutor
 {
-    Task<ToolExecutionResult> ExecuteAsync(string toolName, string argumentsJson);
+    Task<ToolExecutionResult> ExecuteAsync(
+        string toolName,
+        string argumentsJson,
+        CancellationToken cancellationToken);
 }

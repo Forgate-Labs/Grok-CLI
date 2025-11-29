@@ -4,7 +4,7 @@ namespace GrokCLI.Services;
 
 public interface ISearchService
 {
-    Task<SearchResult> SearchAsync(SearchOptions options);
+    Task<SearchResult> SearchAsync(SearchOptions options, CancellationToken cancellationToken);
     bool IsRipgrepAvailable();
     string GetPlatformType();
 }
