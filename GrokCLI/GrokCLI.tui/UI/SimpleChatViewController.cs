@@ -17,6 +17,7 @@ public class SimpleChatViewController
     private ChatDisplayMode _displayMode;
     private readonly Stopwatch _sessionStopwatch;
     private readonly string _version;
+    private readonly string _configPath;
     private CancellationTokenSource? _cancellationTokenSource;
     private bool _isProcessing;
 
@@ -25,7 +26,8 @@ public class SimpleChatViewController
         SimpleTerminalUI ui,
         bool isEnabled,
         ChatDisplayMode displayMode,
-        string version)
+        string version,
+        string configPath)
     {
         _chatService = chatService;
         _conversation = new List<ChatMessage>();
@@ -34,6 +36,7 @@ public class SimpleChatViewController
         _displayMode = displayMode;
         _sessionStopwatch = Stopwatch.StartNew();
         _version = version;
+        _configPath = configPath;
 
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
@@ -110,6 +113,7 @@ public class SimpleChatViewController
         _ui.WriteLine($"Grok CLI {_version} - Agentic Mode");
         _ui.WriteLine($"Mode: {_displayMode} (type \"debug\" or \"normal\" to switch)");
         _ui.WriteLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
+        _ui.WriteLine($"Config: {_configPath}");
         _ui.WriteLine("Model: grok-4-1-fast-reasoning");
         _ui.WriteLine("");
     }
@@ -129,6 +133,9 @@ public class SimpleChatViewController
         if (_displayMode != ChatDisplayMode.Debug)
             return;
 
+        if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
+            return;
+
         if (string.IsNullOrEmpty(toolEvent.ArgumentsJson))
         {
             Console.WriteLine($"\n🔧 [Tool: {toolEvent.ToolName}]");
@@ -142,6 +149,17 @@ public class SimpleChatViewController
 
     private void OnToolResult(ToolResultEvent toolEvent)
     {
+        if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
+        {
+            HandlePlanTool(toolEvent);
+            return;
+        }
+
+        if (string.Equals(toolEvent.ToolName, "workflow_done", StringComparison.OrdinalIgnoreCase))
+        {
+            _ui.ClearPlan();
+        }
+
         if (_displayMode == ChatDisplayMode.Debug)
         {
             RenderDebugToolResult(toolEvent);
@@ -628,6 +646,90 @@ public class SimpleChatViewController
 
         return content.Split('\n').Length;
     }
+
+    private void HandlePlanTool(ToolResultEvent toolEvent)
+    {
+        if (!toolEvent.Result.Success)
+            return;
+
+        var plan = ParsePlanPayload(toolEvent.ArgumentsJson);
+
+        if (plan == null)
+            return;
+
+        if (plan.Items.Count == 0)
+        {
+            _ui.ClearPlan();
+            return;
+        }
+
+        var entries = new List<PlanEntry>();
+        foreach (var item in plan.Items)
+        {
+            entries.Add(new PlanEntry(item.Title, item.Status));
+        }
+
+        _ui.SetPlan(plan.Title, entries);
+    }
+
+    private PlanPayload? ParsePlanPayload(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var title = root.TryGetProperty("title", out var titleProp)
+                ? titleProp.GetString()
+                : null;
+
+            if (!root.TryGetProperty("items", out var itemsProp) || itemsProp.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var items = new List<PlanItemPayload>();
+
+            foreach (var item in itemsProp.EnumerateArray())
+            {
+                if (!item.TryGetProperty("title", out var itemTitleProp))
+                    continue;
+
+                var itemTitle = itemTitleProp.GetString();
+                if (string.IsNullOrWhiteSpace(itemTitle))
+                    continue;
+
+                var status = item.TryGetProperty("status", out var statusProp)
+                    ? statusProp.GetString()
+                    : null;
+
+                items.Add(new PlanItemPayload(itemTitle, NormalizeStatus(status)));
+            }
+
+            return new PlanPayload(title, items);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private PlanStatus NormalizeStatus(string? value)
+    {
+        var normalized = value?.Replace("-", "_").ToLowerInvariant();
+
+        return normalized switch
+        {
+            "done" or "complete" or "completed" or "finished" or "ok" or "success" => PlanStatus.Done,
+            "in_progress" or "progress" or "doing" or "active" or "working" => PlanStatus.InProgress,
+            _ => PlanStatus.Pending
+        };
+    }
+
+    private sealed record PlanPayload(string? Title, List<PlanItemPayload> Items);
+
+    private sealed record PlanItemPayload(string Title, PlanStatus Status);
 
     private sealed class EditResultMetadata
     {

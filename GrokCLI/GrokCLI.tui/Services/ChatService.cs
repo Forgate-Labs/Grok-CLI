@@ -4,6 +4,7 @@ using GrokCLI.Models;
 using GrokCLI.Tools;
 using OpenAI.Chat;
 using System.Linq;
+using System.Threading;
 
 namespace GrokCLI.Services;
 

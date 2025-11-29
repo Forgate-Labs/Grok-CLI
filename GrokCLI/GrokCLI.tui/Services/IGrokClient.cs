@@ -1,3 +1,4 @@
+using System.Threading;
 using OpenAI.Chat;
 
 namespace GrokCLI.Services;

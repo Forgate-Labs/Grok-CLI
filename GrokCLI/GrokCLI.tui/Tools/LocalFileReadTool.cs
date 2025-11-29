@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Threading;
 using GrokCLI.Models;
 using OpenAI.Chat;
 

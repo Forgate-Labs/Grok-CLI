@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace GrokCLI.tui.Tools
 {

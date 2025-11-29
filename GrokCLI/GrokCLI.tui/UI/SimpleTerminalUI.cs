@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 
 namespace GrokCLI.UI;
@@ -13,6 +14,10 @@ public class SimpleTerminalUI
     private int _inputStartColumn = 0;
     private bool _inputLineActive = true;
     private int _inputStartLine = 0;
+    private int _planStartLine = 0;
+    private int _planLineCount = 0;
+    private string? _planTitle;
+    private List<PlanEntry> _planItems = new();
 
     public SimpleTerminalUI()
     {
@@ -28,7 +33,7 @@ public class SimpleTerminalUI
         {
             if (_inputLineActive)
             {
-                ClearCurrentInputLine();
+                ClearInputArea();
             }
 
             Console.WriteLine(message);
@@ -54,7 +59,7 @@ public class SimpleTerminalUI
         {
             if (_inputLineActive)
             {
-                ClearCurrentInputLine();
+                ClearInputArea();
             }
 
             Console.WriteLine();
@@ -166,16 +171,20 @@ public class SimpleTerminalUI
         {
             if (_inputLineActive)
             {
-                ClearCurrentInputLine();
+                ClearPlanArea();
+                ClearInputArea();
                 DrawInputLine();
             }
         }
     }
 
-    private void ClearCurrentInputLine()
+    private void ClearInputArea()
     {
+        if (_inputStartLine < 0)
+            return;
+
         var lines = _currentInput.Split('\n');
-        var lineCount = lines.Length;
+        var lineCount = Math.Max(1, lines.Length);
 
         for (int i = 0; i < lineCount; i++)
         {
@@ -190,6 +199,16 @@ public class SimpleTerminalUI
 
     private void DrawInputLine()
     {
+        _planStartLine = Console.CursorTop;
+
+        var planLines = BuildPlanLines();
+        _planLineCount = planLines.Count;
+
+        foreach (var line in planLines)
+        {
+            Console.WriteLine(line);
+        }
+
         _inputStartLine = Console.CursorTop;
 
         var statusPart = string.IsNullOrEmpty(_processingStatus) ? "" : $"{_processingStatus} | ";
@@ -328,7 +347,7 @@ public class SimpleTerminalUI
         {
             if (_inputLineActive)
             {
-                ClearCurrentInputLine();
+                ClearInputArea();
                 _inputLineActive = false;
             }
         }
@@ -346,10 +365,109 @@ public class SimpleTerminalUI
         }
     }
 
+    public void SetPlan(string? title, List<PlanEntry> items)
+    {
+        lock (_lock)
+        {
+            _planTitle = string.IsNullOrWhiteSpace(title) ? "Grok Plan" : title;
+            _planItems = items;
+
+            if (_inputLineActive)
+            {
+                UpdateInputLine();
+            }
+            else
+            {
+                ClearPlanArea();
+                _planStartLine = Console.CursorTop;
+                var planLines = BuildPlanLines();
+                _planLineCount = planLines.Count;
+
+                foreach (var line in planLines)
+                {
+                    Console.WriteLine(line);
+                }
+
+                Console.CursorTop = _planStartLine + _planLineCount;
+                Console.CursorLeft = 0;
+            }
+        }
+    }
+
+    public void ClearPlan()
+    {
+        lock (_lock)
+        {
+            _planTitle = null;
+            _planItems.Clear();
+            ClearPlanArea();
+            _planLineCount = 0;
+
+            if (_inputLineActive)
+            {
+                UpdateInputLine();
+            }
+            else
+            {
+                Console.CursorTop = _planStartLine;
+                Console.CursorLeft = 0;
+            }
+        }
+    }
+
     public void Stop()
     {
         _isRunning = false;
     }
 
     public bool IsRunning => _isRunning;
+
+    private List<string> BuildPlanLines()
+    {
+        if (_planItems.Count == 0 || string.IsNullOrWhiteSpace(_planTitle))
+            return new List<string>();
+
+        var lines = new List<string>
+        {
+            _planTitle!
+        };
+
+        foreach (var item in _planItems)
+        {
+            var symbol = item.Status switch
+            {
+                PlanStatus.Done => "✔",
+                PlanStatus.InProgress => "…",
+                _ => "□"
+            };
+            lines.Add($"  {symbol} {item.Title}");
+        }
+
+        return lines;
+    }
+
+    private void ClearPlanArea()
+    {
+        if (_planLineCount == 0)
+            return;
+
+        for (int i = 0; i < _planLineCount; i++)
+        {
+            Console.CursorTop = _planStartLine + i;
+            Console.CursorLeft = 0;
+            Console.Write(new string(' ', Console.WindowWidth));
+        }
+
+        Console.CursorTop = _planStartLine;
+        Console.CursorLeft = 0;
+    }
 }
+
+public enum PlanStatus
+{
+    Pending,
+    InProgress,
+    Done
+}
+
+public record PlanEntry(string Title, PlanStatus Status);

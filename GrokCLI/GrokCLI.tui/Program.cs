@@ -8,7 +8,7 @@ using GrokCLI.Tools;
 using GrokCLI.UI;
 using GrokCLI.tui.Tools;
 
-const string DefaultPrePrompt = "You are an assistant using Grok CLI. After you complete the user's request, always call the tool `workflow_done` to signal completion. Do not end a response without that tool call. If GROK.md is available, follow its instructions.";
+const string DefaultPrePrompt = "You are an assistant using Grok CLI. Before executing tasks, call the `set_plan` tool with a title and checklist of the tasks you will perform, and update it whenever the plan changes. When you finish any step, call `set_plan` again to mark it complete. After you complete the user's request, always call the tool `workflow_done` to signal completion. Do not end a response without that tool call. If GROK.md is available, follow its instructions.";
 
 var services = new ServiceCollection();
 
@@ -29,6 +29,7 @@ services.AddSingleton<ITool, TestTool>();
 services.AddSingleton<ITool, ChangeDirectoryTool>();
 services.AddSingleton<ITool, EditFileTool>();
 services.AddSingleton<ITool, SearchTool>();
+services.AddSingleton<ITool, PlanTool>();
 
 var installDirectory = GetInstallDirectory();
 var configPath = Path.Combine(installDirectory, "grok.config.json");
@@ -80,7 +81,7 @@ var ui = new SimpleTerminalUI();
 var chatService = HasApiKey()
     ? serviceProvider.GetRequiredService<IChatService>()
     : new DisabledChatService();
-var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion());
+var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion(), configPath);
 
 if (!HasApiKey())
 {
