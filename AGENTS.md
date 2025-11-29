@@ -2,3 +2,11 @@
 
 - Do not add code comments to the codebase.
 - All code (identifiers, strings, docs) must be written in English.
+
+# GrokCLI Functionality Summary (keep updated as features change)
+
+- Terminal UI chat client for Grok 4.1 Fast with streaming responses and keyboard shortcuts for sending, scrolling, clearing, and quitting.
+- Agentic chat loop with tool-calling support, including Python code execution plus placeholder web search, and local helpers for file reading/editing, search, tests, and directory changes.
+- Shell command execution from the chat via `/cmd ...` (with debug output in Debug mode and compact summaries in Normal mode).
+- Two display modes: Normal (summarized tool output) and Debug (full tool call logs), selectable via CLI flags (`--mode normal|debug`, `--debug`, `--normal`) or `GROK_MODE`.
+- API key handling: locks the chat when `XAI_API_KEY` is missing, shows guidance, and in Debug builds auto-copies `grok.config.json` from the repo into the working directory when present.
