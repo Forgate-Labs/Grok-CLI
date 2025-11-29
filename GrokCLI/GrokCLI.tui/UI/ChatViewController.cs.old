@@ -44,7 +44,6 @@ public class ChatViewController
 
         // Add user message to the UI
         AppendToChat($"\n[You]: {userText}\n");
-        AppendToChat("[Grok]: ");
 
         // Disable input while processing
         _inputView.ReadOnly = true;

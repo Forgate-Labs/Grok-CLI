@@ -9,6 +9,7 @@ Terminal UI chat client for Grok 4.1 Fast with agentic (tool-calling) support, b
 - Agentic loop with tool calls (Python code execution, web search placeholder).
 - Terminal UI with keyboard shortcuts (Enter to send, Ctrl+↑/Ctrl+↓ scroll, Ctrl+L clear, Ctrl+Q exit).
 - Safety: app locks when `XAI_API_KEY` is missing and shows an in-chat error; Debug build copies `grok.config.json` from the repo into the working directory if present.
+- Display modes: Normal (summaries) and Debug (full tool call logs). Use `--mode normal|debug`, `--debug`, or `GROK_MODE=debug`.
 
 ## Requirements
 - .NET 10 SDK

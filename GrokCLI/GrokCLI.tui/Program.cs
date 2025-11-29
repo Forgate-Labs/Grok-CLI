@@ -24,6 +24,8 @@ services.AddSingleton<ITool, ChangeDirectoryTool>();
 services.AddSingleton<ITool, EditFileTool>();
 services.AddSingleton<ITool, SearchTool>();
 
+var displayMode = ResolveDisplayMode(args);
+
 Console.OutputEncoding = new UTF8Encoding(false);
 Console.InputEncoding = new UTF8Encoding(false);
 
@@ -50,7 +52,7 @@ var ui = new SimpleTerminalUI();
 var chatService = hasApiKey
     ? serviceProvider.GetRequiredService<IChatService>()
     : new DisabledChatService();
-var controller = new SimpleChatViewController(chatService, ui, hasApiKey);
+var controller = new SimpleChatViewController(chatService, ui, hasApiKey, displayMode);
 
 if (!hasApiKey)
 {
@@ -136,19 +138,47 @@ while (ui.IsRunning)
 
                         ui.SetProcessingStatus("");
 
-                        Console.WriteLine($"\n💻 [Command]: {command}");
-                        Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
-
-                        if (!string.IsNullOrEmpty(result.Output))
+                        if (displayMode == ChatDisplayMode.Debug)
                         {
-                            Console.WriteLine($"\n✅ [Output]:");
-                            Console.WriteLine(result.Output);
+                            Console.WriteLine($"\n💻 [Command]: {command}");
+                            Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
+
+                            if (!string.IsNullOrEmpty(result.Output))
+                            {
+                                Console.WriteLine($"\n✅ [Output]:");
+                                Console.WriteLine(result.Output);
+                            }
+
+                            if (!string.IsNullOrEmpty(result.Error))
+                            {
+                                Console.WriteLine($"\n❌ [Error]:");
+                                Console.WriteLine(result.Error);
+                            }
                         }
-
-                        if (!string.IsNullOrEmpty(result.Error))
+                        else
                         {
-                            Console.WriteLine($"\n❌ [Error]:");
-                            Console.WriteLine(result.Error);
+                            Console.WriteLine($"\n● Run({command})");
+
+                            var success = result.ExitCode == 0;
+                            var body = success
+                                ? (!string.IsNullOrWhiteSpace(result.Output)
+                                    ? result.Output
+                                    : "Completed with no output")
+                                : (!string.IsNullOrWhiteSpace(result.Error)
+                                    ? result.Error
+                                    : (!string.IsNullOrWhiteSpace(result.Output)
+                                        ? result.Output
+                                        : "Command failed"));
+
+                            var lines = body.ReplaceLineEndings("\n").Split('\n');
+                            var color = success ? ConsoleColor.Green : ConsoleColor.Red;
+                            var previous = Console.ForegroundColor;
+                            Console.ForegroundColor = color;
+                            foreach (var line in lines)
+                            {
+                                Console.WriteLine($"⎿ {line}");
+                            }
+                            Console.ForegroundColor = previous;
                         }
 
                         Console.WriteLine();
@@ -159,6 +189,23 @@ while (ui.IsRunning)
                 {
                     ui.ClearInput();
                 }
+            }
+            else if (!string.IsNullOrWhiteSpace(userInput) &&
+                (userInput.Equals("debug", StringComparison.OrdinalIgnoreCase) ||
+                 userInput.Equals("normal", StringComparison.OrdinalIgnoreCase)))
+            {
+                var targetMode = userInput.Equals("debug", StringComparison.OrdinalIgnoreCase)
+                    ? ChatDisplayMode.Debug
+                    : ChatDisplayMode.Normal;
+
+                ui.HideInputLine();
+                Console.WriteLine($"[You]: {userInput}");
+                ui.ClearInput();
+
+                displayMode = targetMode;
+                controller.SetDisplayMode(targetMode);
+
+                ui.ShowInputLine();
             }
             else
             {
@@ -181,6 +228,40 @@ while (ui.IsRunning)
 
 Console.WriteLine();
 Console.CursorVisible = true;
+
+ChatDisplayMode ResolveDisplayMode(string[] args)
+{
+    var modeArg = args.FirstOrDefault(a =>
+        a.StartsWith("--mode=", StringComparison.OrdinalIgnoreCase));
+    if (modeArg != null)
+    {
+        var value = modeArg.Substring("--mode=".Length);
+        return ParseDisplayMode(value);
+    }
+
+    if (args.Any(a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase)))
+        return ChatDisplayMode.Debug;
+
+    if (args.Any(a => a.Equals("--normal", StringComparison.OrdinalIgnoreCase)))
+        return ChatDisplayMode.Normal;
+
+    var env = Environment.GetEnvironmentVariable("GROK_MODE");
+    if (!string.IsNullOrWhiteSpace(env))
+        return ParseDisplayMode(env);
+
+    return ChatDisplayMode.Normal;
+}
+
+ChatDisplayMode ParseDisplayMode(string? value)
+{
+    if (string.Equals(value, "debug", StringComparison.OrdinalIgnoreCase))
+        return ChatDisplayMode.Debug;
+
+    if (string.Equals(value, "normal", StringComparison.OrdinalIgnoreCase))
+        return ChatDisplayMode.Normal;
+
+    return ChatDisplayMode.Normal;
+}
 
 string? LoadApiKeyFromConfig()
 {

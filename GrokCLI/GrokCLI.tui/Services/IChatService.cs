@@ -1,3 +1,4 @@
+using GrokCLI.Models;
 using OpenAI.Chat;
 
 namespace GrokCLI.Services;
@@ -5,8 +6,8 @@ namespace GrokCLI.Services;
 public interface IChatService
 {
     event Action<string>? OnTextReceived;
-    event Action<string, string>? OnToolCalled;
-    event Action<string, string>? OnToolResult;
+    event Action<ToolCallEvent>? OnToolCalled;
+    event Action<ToolResultEvent>? OnToolResult;
 
     Task SendMessageAsync(string userMessage, List<ChatMessage> conversation);
 }

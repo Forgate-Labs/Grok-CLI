@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using GrokCLI.Models;
 using GrokCLI.Tools;
 using OpenAI.Chat;
@@ -14,8 +13,8 @@ public class ChatService : IChatService
     private readonly IEnumerable<ITool> _tools;
 
     public event Action<string>? OnTextReceived;
-    public event Action<string, string>? OnToolCalled;
-    public event Action<string, string>? OnToolResult;
+    public event Action<ToolCallEvent>? OnToolCalled;
+    public event Action<ToolResultEvent>? OnToolResult;
 
     public ChatService(IGrokClient grokClient, IToolExecutor toolExecutor, IEnumerable<ITool> tools)
     {
@@ -44,7 +43,6 @@ public class ChatService : IChatService
             var assistantBuffer = new StringBuilder();
             char? pendingHighSurrogate = null;
             var toolCallsInfo = new Dictionary<int, ToolCallInfo>();
-            var displayedTools = new HashSet<int>();
 
             var completionUpdates = _grokClient.StreamChatAsync(conversation, options);
 
@@ -69,12 +67,6 @@ public class ChatService : IChatService
 
                         if (!string.IsNullOrEmpty(toolUpdate.FunctionName))
                             toolCallsInfo[toolIndex].Name = toolUpdate.FunctionName;
-
-                        if (!string.IsNullOrEmpty(toolUpdate.FunctionName) && !displayedTools.Contains(toolIndex))
-                        {
-                            OnToolCalled?.Invoke(toolUpdate.FunctionName, "");
-                            displayedTools.Add(toolIndex);
-                        }
 
                         if (toolUpdate.FunctionArgumentsUpdate != null)
                         {
@@ -117,20 +109,18 @@ public class ChatService : IChatService
                     var toolInfo = kvp.Value;
                     var argsJson = toolInfo.Arguments.ToString();
 
-                    OnToolCalled?.Invoke(toolInfo.Name, argsJson);
+                    OnToolCalled?.Invoke(new ToolCallEvent(
+                        toolInfo.Name,
+                        toolInfo.Id,
+                        argsJson));
 
                     var result = await _toolExecutor.ExecuteAsync(toolInfo.Name, argsJson);
-
-                    var resultText = result.Success ? result.Output : result.Error;
-                    var displayText = resultText;
-                    if (result.Success && toolInfo.Name == "read_local_file")
-                    {
-                        var path = ExtractPath(argsJson) ?? "unknown";
-                        var tokenCount = EstimateTokenCount(result.Output);
-                        displayText = $"{path} ({tokenCount} tokens)";
-                    }
                     var resultPayload = result.ToModelPayload();
-                    OnToolResult?.Invoke(toolInfo.Name, displayText);
+                    OnToolResult?.Invoke(new ToolResultEvent(
+                        toolInfo.Name,
+                        toolInfo.Id,
+                        argsJson,
+                        result));
 
                     conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
                 }
@@ -204,29 +194,6 @@ public class ChatService : IChatService
             }
 
             return builder.ToString();
-        }
-
-        static string? ExtractPath(string argsJson)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(argsJson);
-                if (doc.RootElement.TryGetProperty("path", out var pathProp))
-                    return pathProp.GetString();
-            }
-            catch
-            {
-            }
-
-            return null;
-        }
-
-        static int EstimateTokenCount(string content)
-        {
-            if (string.IsNullOrEmpty(content))
-                return 0;
-
-            return Regex.Matches(content, @"\S+").Count;
         }
     }
 }
