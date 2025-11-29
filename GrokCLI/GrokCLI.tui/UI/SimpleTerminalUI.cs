@@ -99,7 +99,7 @@ public class SimpleTerminalUI
         _inputStartLine = Console.CursorTop;
 
         var statusPart = string.IsNullOrEmpty(_processingStatus) ? "" : $"{_processingStatus} | ";
-        var prompt = $"{statusPart}{_workingDirectory} > ";
+        var prompt = $"[GROK]{statusPart}{_workingDirectory} > ";
 
         Console.Write(prompt);
         _inputStartColumn = prompt.Length;

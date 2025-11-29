@@ -84,10 +84,47 @@ while (ui.IsRunning)
         }
         else if (key.Key == ConsoleKey.Enter && hasApiKey)
         {
-            // Enter: Check for /cmd command or send message
+            // Enter: Check for special commands or send message
             var userInput = ui.GetCurrentInput()?.Trim();
 
-            if (!string.IsNullOrWhiteSpace(userInput) && userInput.StartsWith("/cmd "))
+            if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Execute clear command without sending to Grok (same as /cmd clear)
+                var command = "clear";
+
+                _ = Task.Run(async () =>
+                {
+                    ui.HideInputLine();
+                    Console.WriteLine($"[You]: {userInput}");
+
+                    ui.ClearInput();
+                    ui.SetProcessingStatus("executing...");
+
+                    var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
+                    var result = await shellExecutor.ExecuteAsync(command, 300); // 5 minute timeout
+
+                    ui.SetProcessingStatus("");
+
+                    Console.WriteLine($"\n💻 [Command]: {command}");
+                    Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
+
+                    if (!string.IsNullOrEmpty(result.Output))
+                    {
+                        Console.WriteLine($"\n✅ [Output]:");
+                        Console.WriteLine(result.Output);
+                    }
+
+                    if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        Console.WriteLine($"\n❌ [Error]:");
+                        Console.WriteLine(result.Error);
+                    }
+
+                    Console.WriteLine();
+                    ui.ShowInputLine();
+                });
+            }
+            else if (!string.IsNullOrWhiteSpace(userInput) && userInput.StartsWith("/cmd "))
             {
                 // Execute direct terminal command
                 var command = userInput.Substring(5).Trim(); // Remove "/cmd "
