@@ -43,7 +43,7 @@ public class SimpleChatViewController
 
         _ui.HideInputLine();
 
-        Console.WriteLine($"[You]: {userText}");
+        _ui.ShowUserPrompt(userText);
 
         _ui.ClearInput();
 

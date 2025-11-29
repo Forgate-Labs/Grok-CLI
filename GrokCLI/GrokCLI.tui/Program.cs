@@ -8,6 +8,8 @@ using GrokCLI.Tools;
 using GrokCLI.UI;
 using GrokCLI.tui.Tools;
 
+const string DefaultPrePrompt = "You are an assistant using Grok CLI. After you complete the user's request, always call the tool `workflow_done` to signal completion. Do not end a response without that tool call. If GROK.md is available, follow its instructions.";
+
 var services = new ServiceCollection();
 
 services.AddSingleton<IPlatformService, PlatformService>();
@@ -55,7 +57,7 @@ if (hasApiKey)
     services.AddSingleton<IChatService>(sp =>
     {
         var config = sp.GetService<AppConfig>();
-        var prePrompt = config?.PrePrompt;
+        var prePrompt = ComposePrePrompt(config);
         return new ChatService(
             sp.GetRequiredService<IGrokClient>(),
             sp.GetRequiredService<IToolExecutor>(),
@@ -106,7 +108,7 @@ while (ui.IsRunning)
                 _ = Task.Run(async () =>
                 {
                     ui.HideInputLine();
-                    Console.WriteLine($"[You]: {userInput}");
+                    ui.ShowUserPrompt(userInput);
 
                     ui.ClearInput();
                     ui.SetProcessingStatus("executing...");
@@ -146,7 +148,7 @@ while (ui.IsRunning)
                     _ = Task.Run(async () =>
                     {
                         ui.HideInputLine();
-                        Console.WriteLine($"[You]: {userInput}");
+                        ui.ShowUserPrompt(userInput);
 
                         ui.ClearInput();
                         ui.SetProcessingStatus("executing...");
@@ -217,7 +219,7 @@ while (ui.IsRunning)
                     : ChatDisplayMode.Normal;
 
                 ui.HideInputLine();
-                Console.WriteLine($"[You]: {userInput}");
+                ui.ShowUserPrompt(userInput);
                 ui.ClearInput();
 
                 displayMode = targetMode;
@@ -407,13 +409,52 @@ string? FindConfigInAncestors(string startPath, string fileName)
     return null;
 }
 
+string? ComposePrePrompt(AppConfig? config)
+{
+    var segments = new List<string> { DefaultPrePrompt };
+
+    if (!string.IsNullOrWhiteSpace(config?.PrePrompt) &&
+        !string.Equals(config.PrePrompt, DefaultPrePrompt, StringComparison.Ordinal))
+    {
+        segments.Add(config.PrePrompt);
+    }
+
+    var grokInstructions = LoadGrokInstructions();
+    if (!string.IsNullOrWhiteSpace(grokInstructions))
+        segments.Add(grokInstructions);
+
+    return string.Join("\n\n", segments);
+}
+
+string? LoadGrokInstructions()
+{
+    var grokPath = FindConfigInAncestors(Directory.GetCurrentDirectory(), "GROK.md");
+    if (string.IsNullOrWhiteSpace(grokPath))
+        return null;
+
+    try
+    {
+        var content = File.ReadAllText(grokPath);
+        if (string.IsNullOrWhiteSpace(content))
+            return "Follow the instructions in GROK.md.";
+
+        return $"Follow the instructions from GROK.md below:\n{content}";
+    }
+    catch
+    {
+    }
+
+    return "GROK.md is present but could not be read.";
+}
+
 AppConfig CreateDefaultConfig(string configPath)
 {
     var config = new AppConfig
     {
         ConfigPath = configPath,
         AllowedCommands = new List<string>(),
-        BlockedCommands = GetDefaultBlockedCommands()
+        BlockedCommands = GetDefaultBlockedCommands(),
+        PrePrompt = DefaultPrePrompt
     };
 
     SaveConfig(config);

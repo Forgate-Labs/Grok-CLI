@@ -3,6 +3,7 @@ using System.Text.Json;
 using GrokCLI.Models;
 using GrokCLI.Tools;
 using OpenAI.Chat;
+using System.Linq;
 
 namespace GrokCLI.Services;
 
@@ -99,6 +100,8 @@ public class ChatService : IChatService
 
             if (toolCallsInfo.Count > 0)
             {
+                var hasWorkflowDone = toolCallsInfo.Values.Any(t => string.Equals(t.Name, "workflow_done", StringComparison.OrdinalIgnoreCase));
+
                 var assistantMsg = new AssistantChatMessage(assistantBuffer.ToString());
                 foreach (var kvp in toolCallsInfo)
                 {
@@ -132,7 +135,7 @@ public class ChatService : IChatService
                     conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
                 }
 
-                continueLoop = true;
+                continueLoop = !hasWorkflowDone;
             }
             else
             {

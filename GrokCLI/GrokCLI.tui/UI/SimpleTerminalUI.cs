@@ -48,6 +48,106 @@ public class SimpleTerminalUI
         }
     }
 
+    public void ShowUserPrompt(string message)
+    {
+        lock (_lock)
+        {
+            if (_inputLineActive)
+            {
+                ClearCurrentInputLine();
+            }
+
+            Console.WriteLine();
+            WriteUserPromptBlock(message);
+            Console.WriteLine();
+
+            if (_inputLineActive)
+            {
+                DrawInputLine();
+            }
+        }
+    }
+
+    private void WriteUserPromptBlock(string message)
+    {
+        var content = $"[You]: {message}";
+        var width = Math.Max(1, Console.WindowWidth);
+        var previousForeground = Console.ForegroundColor;
+        var previousBackground = Console.BackgroundColor;
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.BackgroundColor = ConsoleColor.DarkGray;
+
+        foreach (var line in WrapUserPrompt(content, width))
+        {
+            var padded = line.Length >= width ? line[..width] : line.PadRight(width);
+            Console.WriteLine(padded);
+        }
+
+        Console.ForegroundColor = previousForeground;
+        Console.BackgroundColor = previousBackground;
+    }
+
+    private IEnumerable<string> WrapUserPrompt(string text, int width)
+    {
+        var lines = text.ReplaceLineEndings("\n").Split('\n');
+        foreach (var line in lines)
+        {
+            if (line.Length == 0)
+            {
+                yield return "";
+                continue;
+            }
+
+            if (line.Length <= width)
+            {
+                yield return line;
+                continue;
+            }
+
+            var words = line.Split(' ');
+            var currentLine = "";
+
+            foreach (var word in words)
+            {
+                var separator = currentLine.Length == 0 ? "" : " ";
+                if (currentLine.Length + separator.Length + word.Length <= width)
+                {
+                    currentLine += separator + word;
+                }
+                else
+                {
+                    if (currentLine.Length > 0)
+                    {
+                        yield return currentLine;
+                    }
+
+                    if (word.Length <= width)
+                    {
+                        currentLine = word;
+                    }
+                    else
+                    {
+                        var start = 0;
+                        while (start < word.Length)
+                        {
+                            var take = Math.Min(width, word.Length - start);
+                            yield return word.Substring(start, take);
+                            start += take;
+                        }
+
+                        currentLine = "";
+                    }
+                }
+            }
+
+            if (currentLine.Length > 0)
+            {
+                yield return currentLine;
+            }
+        }
+    }
+
     public void SetProcessingStatus(string status)
     {
         lock (_lock)
