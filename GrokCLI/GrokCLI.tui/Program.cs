@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using GrokCLI.Models;
 using GrokCLI.Services;
 using GrokCLI.Tools;
 using GrokCLI.UI;
@@ -18,6 +19,7 @@ services.AddSingleton<ISearchService, SearchService>();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, CommandExecutionTool>();
+services.AddSingleton<ITool, CompletionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
 services.AddSingleton<ITool, LocalFileReadTool>();
 services.AddSingleton<ITool, TestTool>();
@@ -25,6 +27,7 @@ services.AddSingleton<ITool, ChangeDirectoryTool>();
 services.AddSingleton<ITool, EditFileTool>();
 services.AddSingleton<ITool, SearchTool>();
 
+var appConfig = LoadConfig();
 var displayMode = ResolveDisplayMode(args);
 
 Console.OutputEncoding = new UTF8Encoding(false);
@@ -36,15 +39,25 @@ if (string.IsNullOrWhiteSpace(apiKey))
 #if DEBUG
     EnsureConfigInWorkingDirectory();
 #endif
-    apiKey = LoadApiKeyFromConfig();
+    apiKey = appConfig?.XaiApiKey;
 }
 var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
 
 if (hasApiKey)
 {
+    services.AddSingleton(appConfig ?? new AppConfig());
     services.AddSingleton<IGrokClient>(sp => new GrokClient(apiKey!));
     services.AddSingleton<IToolExecutor, ToolExecutor>();
-    services.AddSingleton<IChatService, ChatService>();
+    services.AddSingleton<IChatService>(sp =>
+    {
+        var config = sp.GetService<AppConfig>();
+        var prePrompt = config?.PrePrompt;
+        return new ChatService(
+            sp.GetRequiredService<IGrokClient>(),
+            sp.GetRequiredService<IToolExecutor>(),
+            sp.GetRequiredService<IEnumerable<ITool>>(),
+            prePrompt);
+    });
 }
 
 var serviceProvider = services.BuildServiceProvider();
@@ -264,7 +277,7 @@ ChatDisplayMode ParseDisplayMode(string? value)
     return ChatDisplayMode.Normal;
 }
 
-string? LoadApiKeyFromConfig()
+AppConfig? LoadConfig()
 {
     var configPath = Path.Combine(Directory.GetCurrentDirectory(), "grok.config.json");
     if (!File.Exists(configPath))
@@ -277,12 +290,30 @@ string? LoadApiKeyFromConfig()
     try
     {
         using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.TryGetProperty("XAI_API_KEY", out var prop))
+        var root = doc.RootElement;
+        var config = new AppConfig();
+
+        if (root.TryGetProperty("XAI_API_KEY", out var keyProp))
         {
-            var value = prop.GetString();
+            var value = keyProp.GetString();
             if (!string.IsNullOrWhiteSpace(value))
-                return value;
+                config.XaiApiKey = value;
         }
+
+        if (root.TryGetProperty("pre_prompt", out var prePromptProp))
+        {
+            var value = prePromptProp.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+                config.PrePrompt = value;
+        }
+        else if (root.TryGetProperty("pre-prompt", out var prePromptHyphenProp))
+        {
+            var value = prePromptHyphenProp.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+                config.PrePrompt = value;
+        }
+
+        return config;
     }
     catch
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GrokCLI.Models;
@@ -13,6 +14,7 @@ public class SimpleChatViewController
     private readonly SimpleTerminalUI _ui;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
+    private readonly Stopwatch _sessionStopwatch;
 
     public SimpleChatViewController(
         IChatService chatService,
@@ -25,6 +27,7 @@ public class SimpleChatViewController
         _ui = ui;
         _isEnabled = isEnabled;
         _displayMode = displayMode;
+        _sessionStopwatch = Stopwatch.StartNew();
 
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
@@ -173,6 +176,9 @@ public class SimpleChatViewController
             case "test":
                 RenderTestSummary(toolEvent);
                 break;
+            case "workflow_done":
+                RenderDoneSummary(toolEvent);
+                break;
             default:
                 RenderGenericSummary(toolEvent);
                 break;
@@ -302,18 +308,30 @@ public class SimpleChatViewController
             return;
 
         Console.WriteLine(" │");
+        var changeLines = new List<(string line, ConsoleColor? color)>();
         foreach (var change in changes)
         {
             if (change.Type == FileChangeType.Removed || change.Type == FileChangeType.Modified)
             {
-                WriteSummaryLine($"- {change.OldLine}", ConsoleColor.Red);
+                changeLines.Add(($"- {change.OldLine}", ConsoleColor.Red));
             }
 
             if (change.Type == FileChangeType.Added || change.Type == FileChangeType.Modified)
             {
-                WriteSummaryLine($"+ {change.NewLine}", ConsoleColor.Green);
+                changeLines.Add(($"+ {change.NewLine}", ConsoleColor.Green));
             }
         }
+
+        foreach (var change in SummarizeColoredLines(changeLines))
+        {
+            WriteSummaryLine(change.line, change.color);
+        }
+    }
+
+    private void RenderDoneSummary(ToolResultEvent toolEvent)
+    {
+        var durationText = GetDurationText();
+        WriteDoneLine(durationText);
     }
 
     private void RenderChangeDirectorySummary(ToolResultEvent toolEvent)
@@ -514,7 +532,7 @@ public class SimpleChatViewController
     private void WriteSummaryBlock(string text, ConsoleColor? color = null)
     {
         var lines = NormalizeOutput(text).Split('\n');
-        foreach (var line in lines)
+        foreach (var line in SummarizeLines(lines))
         {
             WriteSummaryLine(line, color);
         }
@@ -603,5 +621,56 @@ public class SimpleChatViewController
         Added,
         Removed,
         Modified
+    }
+
+    private IEnumerable<string> SummarizeLines(string[] lines)
+    {
+        if (lines.Length <= 4)
+            return lines;
+
+        return new[]
+        {
+            lines[0],
+            $"... +{lines.Length - 3} lines",
+            lines[^2],
+            lines[^1]
+        };
+    }
+
+    private IEnumerable<(string line, ConsoleColor? color)> SummarizeColoredLines(
+        List<(string line, ConsoleColor? color)> lines)
+    {
+        if (lines.Count <= 4)
+            return lines;
+
+        return new List<(string, ConsoleColor?)>
+        {
+            lines[0],
+            ($"... +{lines.Count - 3} lines", null),
+            lines[^2],
+            lines[^1]
+        };
+    }
+
+    private string GetDurationText()
+    {
+        var duration = _sessionStopwatch.Elapsed;
+        return FormatDuration((int)Math.Max(0, duration.TotalSeconds));
+    }
+
+    private string FormatDuration(int seconds)
+    {
+        var minutes = seconds / 60;
+        var remainingSeconds = seconds % 60;
+        return $"{minutes:00}m {remainingSeconds:00}s";
+    }
+
+    private void WriteDoneLine(string durationText)
+    {
+        var prefix = $"─ Worked for {durationText} ";
+        var width = Console.WindowWidth > 0 ? Console.WindowWidth : 80;
+        var remaining = Math.Max(0, width - prefix.Length);
+        var line = prefix + new string('─', remaining);
+        Console.WriteLine(line);
     }
 }

@@ -60,7 +60,7 @@ public class EditFileTool : ITool
                     },
                     ""create_backup"": {
                         ""type"": ""boolean"",
-                        ""description"": ""Create backup before editing (default: true)""
+                        ""description"": ""Create backup before editing, used when requested (default: false)""
                     }
                 },
                 ""required"": [""file_path"", ""operation""]

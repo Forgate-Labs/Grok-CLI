@@ -11,20 +11,27 @@ public class ChatService : IChatService
     private readonly IGrokClient _grokClient;
     private readonly IToolExecutor _toolExecutor;
     private readonly IEnumerable<ITool> _tools;
+    private readonly string? _prePrompt;
 
     public event Action<string>? OnTextReceived;
     public event Action<ToolCallEvent>? OnToolCalled;
     public event Action<ToolResultEvent>? OnToolResult;
 
-    public ChatService(IGrokClient grokClient, IToolExecutor toolExecutor, IEnumerable<ITool> tools)
+    public ChatService(IGrokClient grokClient, IToolExecutor toolExecutor, IEnumerable<ITool> tools, string? prePrompt = null)
     {
         _grokClient = grokClient;
         _toolExecutor = toolExecutor;
         _tools = tools;
+        _prePrompt = prePrompt;
     }
 
     public async Task SendMessageAsync(string userMessage, List<ChatMessage> conversation)
     {
+        if (!string.IsNullOrWhiteSpace(_prePrompt) && conversation.Count == 0)
+        {
+            conversation.Add(new SystemChatMessage(_prePrompt));
+        }
+
         conversation.Add(new UserChatMessage(userMessage));
 
         var options = new ChatCompletionOptions

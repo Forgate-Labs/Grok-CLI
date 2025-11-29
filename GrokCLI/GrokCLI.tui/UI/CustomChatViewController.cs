@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GrokCLI.Models;
@@ -13,6 +14,7 @@ public class CustomChatViewController
     private readonly CustomTerminalUI _ui;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
+    private readonly Stopwatch _sessionStopwatch;
 
     public CustomChatViewController(
         IChatService chatService,
@@ -25,6 +27,7 @@ public class CustomChatViewController
         _ui = ui;
         _isEnabled = isEnabled;
         _displayMode = displayMode;
+        _sessionStopwatch = Stopwatch.StartNew();
 
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
@@ -167,6 +170,9 @@ public class CustomChatViewController
             case "test":
                 RenderTestSummary(toolEvent);
                 break;
+            case "workflow_done":
+                RenderDoneSummary(toolEvent);
+                break;
             default:
                 RenderGenericSummary(toolEvent);
                 break;
@@ -294,18 +300,30 @@ public class CustomChatViewController
             return;
 
         _ui.AddChatMessage(" │");
+        var changeLines = new List<string>();
         foreach (var change in changes)
         {
             if (change.Type == FileChangeType.Removed || change.Type == FileChangeType.Modified)
             {
-                AddSummaryLine($"- {change.OldLine}");
+                changeLines.Add($"- {change.OldLine}");
             }
 
             if (change.Type == FileChangeType.Added || change.Type == FileChangeType.Modified)
             {
-                AddSummaryLine($"+ {change.NewLine}");
+                changeLines.Add($"+ {change.NewLine}");
             }
         }
+
+        foreach (var line in SummarizeLines(changeLines.ToArray()))
+        {
+            AddSummaryLine(line);
+        }
+    }
+
+    private void RenderDoneSummary(ToolResultEvent toolEvent)
+    {
+        var durationText = GetDurationText();
+        AddDoneLine(durationText);
     }
 
     private void RenderChangeDirectorySummary(ToolResultEvent toolEvent)
@@ -375,7 +393,7 @@ public class CustomChatViewController
     private void AddSummaryBlock(string text)
     {
         var lines = NormalizeOutput(text).Split('\n');
-        foreach (var line in lines)
+        foreach (var line in SummarizeLines(lines))
         {
             AddSummaryLine(line);
         }
@@ -583,5 +601,41 @@ public class CustomChatViewController
         Added,
         Removed,
         Modified
+    }
+
+    private IEnumerable<string> SummarizeLines(string[] lines)
+    {
+        if (lines.Length <= 4)
+            return lines;
+
+        return new[]
+        {
+            lines[0],
+            $"... +{lines.Length - 3} lines",
+            lines[^2],
+            lines[^1]
+        };
+    }
+
+    private string GetDurationText()
+    {
+        var duration = _sessionStopwatch.Elapsed;
+        return FormatDuration((int)Math.Max(0, duration.TotalSeconds));
+    }
+
+    private string FormatDuration(int seconds)
+    {
+        var minutes = seconds / 60;
+        var remainingSeconds = seconds % 60;
+        return $"{minutes:00}m {remainingSeconds:00}s";
+    }
+
+    private void AddDoneLine(string durationText)
+    {
+        var prefix = $"─ Worked for {durationText} ";
+        var width = Console.WindowWidth > 0 ? Console.WindowWidth : 80;
+        var remaining = Math.Max(0, width - prefix.Length);
+        var line = prefix + new string('─', remaining);
+        _ui.AddChatMessage(line);
     }
 }
