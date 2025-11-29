@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dotnet --version:*)",
       "Bash(dotnet build:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(dotnet test:*)"
     ],
     "deny": [],
     "ask": []

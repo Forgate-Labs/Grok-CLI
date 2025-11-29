@@ -20,4 +20,8 @@
     <Using Include="NUnit.Framework" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\GrokCLI.tui\GrokCLI.tui.csproj" />
+  </ItemGroup>
+
 </Project>

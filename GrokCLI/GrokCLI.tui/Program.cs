@@ -9,6 +9,13 @@ using GrokCLI.tui.Tools;
 
 var services = new ServiceCollection();
 
+// Register cross-platform services
+services.AddSingleton<IPlatformService, PlatformService>();
+services.AddSingleton<ICommandAdapter, CommandAdapter>();
+services.AddSingleton<IShellExecutor, ShellExecutor>();
+services.AddSingleton<FileSystemHelper>();
+
+// Register tools
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
 services.AddSingleton<ITool, LocalFileReadTool>();
@@ -36,8 +43,41 @@ if (hasApiKey)
 
 var serviceProvider = services.BuildServiceProvider();
 
-// Initialize Terminal.Gui
-Application.Init();
+// Initialize Terminal.Gui with error handling
+try
+{
+    Application.Init();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"Failed to initialize Terminal.Gui: {ex.Message}");
+    Console.Error.WriteLine($"Exception: {ex}");
+
+    // Try to set TERM environment variable if not set
+    var term = Environment.GetEnvironmentVariable("TERM");
+    if (string.IsNullOrEmpty(term))
+    {
+        Console.Error.WriteLine("TERM environment variable is not set. Setting to 'xterm-256color'");
+        Environment.SetEnvironmentVariable("TERM", "xterm-256color");
+
+        // Retry initialization
+        try
+        {
+            Application.Init();
+        }
+        catch (Exception retryEx)
+        {
+            Console.Error.WriteLine($"Retry failed: {retryEx.Message}");
+            return;
+        }
+    }
+    else
+    {
+        Console.Error.WriteLine($"TERM is set to: {term}");
+        return;
+    }
+}
+
 var top = Application.Top;
 
 var window = new ChatWindow();
@@ -55,6 +95,9 @@ if (!hasApiKey)
     window.InputView.CanFocus = false;
     window.InputView.ReadOnly = true;
 }
+//controller.ShowSystemMessage("\nThis line ends with the emoji '\ud83d\udc68': \ud83d\udc68");
+//Console.WriteLine ("This line ends with the emoji '\ud83d\udc68': \ud83d\udc68");
+//Console.WriteLine ("This line ends with the emoji '\ud83d\udc68': \U0001F468");
 
 Application.Run();
 Application.Shutdown();
