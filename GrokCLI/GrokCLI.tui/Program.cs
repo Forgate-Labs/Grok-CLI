@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using GrokCLI.Services;
 using GrokCLI.Tools;
 using GrokCLI.UI;
-using Terminal.Gui;
 using GrokCLI.tui.Tools;
 
 var services = new ServiceCollection();
@@ -43,64 +42,72 @@ if (hasApiKey)
 
 var serviceProvider = services.BuildServiceProvider();
 
-// Initialize Terminal.Gui with error handling
-try
+// Initialize simple UI
+var ui = new SimpleTerminalUI();
+var chatService = hasApiKey
+    ? serviceProvider.GetRequiredService<IChatService>()
+    : new DisabledChatService();
+var controller = new SimpleChatViewController(chatService, ui, hasApiKey);
+
+// Show initial message
+if (!hasApiKey)
 {
-    Application.Init();
+    controller.ShowSystemMessage("XAI_API_KEY is not set. Set the environment variable or configure grok.config.json and restart.");
+    controller.ShowSystemMessage("Press Ctrl+Q to exit.");
+    controller.ShowSystemMessage("");
 }
-catch (Exception ex)
+else
 {
-    Console.Error.WriteLine($"Failed to initialize Terminal.Gui: {ex.Message}");
-    Console.Error.WriteLine($"Exception: {ex}");
+    controller.ShowWelcomeMessage();
+}
 
-    // Try to set TERM environment variable if not set
-    var term = Environment.GetEnvironmentVariable("TERM");
-    if (string.IsNullOrEmpty(term))
+// Draw initial input line
+ui.UpdateInputLine();
+
+// Main input loop
+while (ui.IsRunning)
+{
+    if (Console.KeyAvailable)
     {
-        Console.Error.WriteLine("TERM environment variable is not set. Setting to 'xterm-256color'");
-        Environment.SetEnvironmentVariable("TERM", "xterm-256color");
+        var key = Console.ReadKey(true);
 
-        // Retry initialization
-        try
+        // Handle special keys
+        if (key.Key == ConsoleKey.Q && (key.Modifiers & ConsoleModifiers.Control) != 0)
         {
-            Application.Init();
+            // Ctrl+Q: Exit
+            ui.Stop();
+            break;
         }
-        catch (Exception retryEx)
+        else if (key.Key == ConsoleKey.L && (key.Modifiers & ConsoleModifiers.Control) != 0 && hasApiKey)
         {
-            Console.Error.WriteLine($"Retry failed: {retryEx.Message}");
-            return;
+            // Ctrl+L: Clear chat
+            controller.ClearChat();
+            ui.UpdateInputLine();
+        }
+        else if (key.Key == ConsoleKey.Enter && hasApiKey)
+        {
+            // Enter: Send message
+            _ = Task.Run(async () =>
+            {
+                await controller.SendMessageAsync();
+            });
+        }
+        else
+        {
+            // Regular input handling
+            ui.HandleInput(key);
         }
     }
     else
     {
-        Console.Error.WriteLine($"TERM is set to: {term}");
-        return;
+        // Small delay to avoid CPU spinning
+        Thread.Sleep(10);
     }
 }
 
-var top = Application.Top;
-
-var window = new ChatWindow();
-
-var chatService = hasApiKey
-    ? serviceProvider.GetRequiredService<IChatService>()
-    : new DisabledChatService();
-var controller = new ChatViewController(chatService, window.ChatView, window.InputView, window.ProcessingLabel, hasApiKey);
-
-window.Initialize(top, controller, !hasApiKey);
-
-if (!hasApiKey)
-{
-    controller.ShowSystemMessage("XAI_API_KEY is not set. Set the environment variable or configure grok.config.json and restart. Press Ctrl+Q to exit.");
-    window.InputView.CanFocus = false;
-    window.InputView.ReadOnly = true;
-}
-//controller.ShowSystemMessage("\nThis line ends with the emoji '\ud83d\udc68': \ud83d\udc68");
-//Console.WriteLine ("This line ends with the emoji '\ud83d\udc68': \ud83d\udc68");
-//Console.WriteLine ("This line ends with the emoji '\ud83d\udc68': \U0001F468");
-
-Application.Run();
-Application.Shutdown();
+// Clean exit
+Console.WriteLine();
+Console.CursorVisible = true;
 
 string? LoadApiKeyFromConfig()
 {
