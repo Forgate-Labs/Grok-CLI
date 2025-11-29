@@ -373,6 +373,7 @@ AppConfig? LoadConfig()
     return CreateDefaultConfig(configPath);
 }
 
+#if DEBUG
 void EnsureConfigInWorkingDirectory()
 {
     var workingDir = Directory.GetCurrentDirectory();
@@ -393,6 +394,7 @@ void EnsureConfigInWorkingDirectory()
     {
     }
 }
+#endif
 
 string? FindConfigInAncestors(string startPath, string fileName)
 {

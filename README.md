@@ -4,7 +4,7 @@ Terminal chat client for Grok 4.1 Fast with agentic tool-calling, packaged as a 
 
 ## Quick start
 - Requirements: .NET SDK 10+, xAI API key, and the dotnet tools directory on PATH (`~/.dotnet/tools` on Linux/macOS, `%USERPROFILE%\.dotnet\tools` on Windows).
-- Install: `dotnet tool install -g grok` (update with `dotnet tool update -g grok`).
+- Install: `dotnet tool install -g grok-cli` (update with `dotnet tool update -g grok-cli`).
 - Run: `grok` (or `dotnet run --project GrokCLI/GrokCLI.tui` from source).
 - Provide `XAI_API_KEY` via environment variable or `grok.config.json` in the working directory.
 
@@ -38,7 +38,7 @@ If `GROK.md` is present in the working directory or ancestors, its contents are 
 - Pack (local): `dotnet pack GrokCLI/GrokCLI.tui/GrokCLI.tui.csproj --configuration Release --output out`
 
 ## Publishing
-`.github/Workflows/nuget-publish.yml` builds/packs `GrokCLI.tui` and pushes to NuGet (tool id `grok`) when the `nuget` branch is pushed or the workflow is manually dispatched. It requires the `NUGET_API_KEY` secret, tags `v<version>`, and creates a GitHub release with the generated `.nupkg`.
+`.github/Workflows/nuget-publish.yml` builds/packs `GrokCLI.tui` and pushes to NuGet (package id `grok-cli`, tool command `grok`) when the `nuget` branch is pushed or the workflow is manually dispatched. It requires the `NUGET_API_KEY` secret, tags `v<version>`, and creates a GitHub release with the generated `.nupkg`.
 
 ## Project structure
 - `GrokCLI/GrokCLI.tui`: TUI application and tool entrypoint (`grok`)

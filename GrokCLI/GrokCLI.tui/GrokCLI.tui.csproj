@@ -8,10 +8,15 @@
     <Version>1.0.0</Version>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>grok</ToolCommandName>
-    <PackageId>grok</PackageId>
+    <PackageId>grok-cli</PackageId>
     <Authors>GrokCLI</Authors>
     <Description>Terminal chat client for Grok with agentic tool support.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
  
   <ItemGroup>
