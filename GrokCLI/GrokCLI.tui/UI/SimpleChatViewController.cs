@@ -20,7 +20,6 @@ public class SimpleChatViewController
         _ui = ui;
         _isEnabled = isEnabled;
 
-        // Subscribe to ChatService events
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
@@ -33,17 +32,13 @@ public class SimpleChatViewController
         var userText = _ui.GetCurrentInput()?.Trim();
         if (string.IsNullOrWhiteSpace(userText)) return;
 
-        // Hide input line during processing
         _ui.HideInputLine();
 
-        // Display user message (WriteLine will not redraw input since it's hidden)
         Console.WriteLine($"[You]: {userText}");
         Console.Write("[Grok]: ");
 
-        // Clear input
         _ui.ClearInput();
 
-        // Show processing status
         _ui.SetProcessingStatus("thinking...");
 
         try
@@ -92,12 +87,10 @@ public class SimpleChatViewController
     {
         if (string.IsNullOrEmpty(args))
         {
-            // First notification - only the name
             Console.WriteLine($"\n🔧 [Tool: {toolName}]");
         }
         else
         {
-            // Second notification - with arguments
             Console.WriteLine($"📋 Arguments:");
             Console.WriteLine(args);
         }

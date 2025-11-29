@@ -8,13 +8,11 @@ using GrokCLI.tui.Tools;
 
 var services = new ServiceCollection();
 
-// Register cross-platform services
 services.AddSingleton<IPlatformService, PlatformService>();
 services.AddSingleton<ICommandAdapter, CommandAdapter>();
 services.AddSingleton<IShellExecutor, ShellExecutor>();
 services.AddSingleton<FileSystemHelper>();
 
-// Register tools
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
 services.AddSingleton<ITool, LocalFileReadTool>();
@@ -42,14 +40,12 @@ if (hasApiKey)
 
 var serviceProvider = services.BuildServiceProvider();
 
-// Initialize simple UI
 var ui = new SimpleTerminalUI();
 var chatService = hasApiKey
     ? serviceProvider.GetRequiredService<IChatService>()
     : new DisabledChatService();
 var controller = new SimpleChatViewController(chatService, ui, hasApiKey);
 
-// Show initial message
 if (!hasApiKey)
 {
     controller.ShowSystemMessage("XAI_API_KEY is not set. Set the environment variable or configure grok.config.json and restart.");
@@ -61,35 +57,24 @@ else
     controller.ShowWelcomeMessage();
 }
 
-// Draw initial input line
 ui.UpdateInputLine();
 
-// Main input loop
 while (ui.IsRunning)
 {
     if (Console.KeyAvailable)
     {
         var key = Console.ReadKey(true);
 
-        // Debug: Log key info to understand what's being pressed
-        var debugInfo = $"Key={key.Key}, KeyChar={(int)key.KeyChar}, Modifiers={key.Modifiers}";
-
-        // Handle special keys
-        // Ctrl+J produces KeyChar = '\n' (10) and Key = ConsoleKey.Enter on some terminals
-        // We need to check if Control modifier is present
         if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
         {
-            // Ctrl+Enter or Ctrl+J: Insert newline in input
             ui.InsertNewline();
         }
         else if (key.Key == ConsoleKey.Enter && hasApiKey)
         {
-            // Enter: Check for special commands or send message
             var userInput = ui.GetCurrentInput()?.Trim();
 
             if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
             {
-                // Execute clear command without sending to Grok (same as /cmd clear)
                 var command = "clear";
 
                 _ = Task.Run(async () =>
@@ -101,7 +86,7 @@ while (ui.IsRunning)
                     ui.SetProcessingStatus("executing...");
 
                     var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
-                    var result = await shellExecutor.ExecuteAsync(command, 300); // 5 minute timeout
+                    var result = await shellExecutor.ExecuteAsync(command, 300);
 
                     ui.SetProcessingStatus("");
 
@@ -126,8 +111,7 @@ while (ui.IsRunning)
             }
             else if (!string.IsNullOrWhiteSpace(userInput) && userInput.StartsWith("/cmd "))
             {
-                // Execute direct terminal command
-                var command = userInput.Substring(5).Trim(); // Remove "/cmd "
+                var command = userInput.Substring(5).Trim();
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
@@ -140,7 +124,7 @@ while (ui.IsRunning)
                         ui.SetProcessingStatus("executing...");
 
                         var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
-                        var result = await shellExecutor.ExecuteAsync(command, 300); // 5 minute timeout
+                        var result = await shellExecutor.ExecuteAsync(command, 300);
 
                         ui.SetProcessingStatus("");
 
@@ -170,7 +154,6 @@ while (ui.IsRunning)
             }
             else
             {
-                // Send message to Grok
                 _ = Task.Run(async () =>
                 {
                     await controller.SendMessageAsync();
@@ -179,18 +162,15 @@ while (ui.IsRunning)
         }
         else
         {
-            // Regular input handling
             ui.HandleInput(key);
         }
     }
     else
     {
-        // Small delay to avoid CPU spinning
         Thread.Sleep(10);
     }
 }
 
-// Clean exit
 Console.WriteLine();
 Console.CursorVisible = true;
 

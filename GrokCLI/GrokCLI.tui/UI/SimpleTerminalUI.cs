@@ -26,16 +26,13 @@ public class SimpleTerminalUI
     {
         lock (_lock)
         {
-            // Clear current input line if there's one being displayed
             if (_inputLineActive)
             {
                 ClearCurrentInputLine();
             }
 
-            // Write the message
             Console.WriteLine(message);
 
-            // Redraw input line only if active
             if (_inputLineActive)
             {
                 DrawInputLine();
@@ -47,7 +44,6 @@ public class SimpleTerminalUI
     {
         lock (_lock)
         {
-            // Just write the text without redrawing input
             Console.Write(text);
         }
     }
@@ -81,7 +77,6 @@ public class SimpleTerminalUI
         var lines = _currentInput.Split('\n');
         var lineCount = lines.Length;
 
-        // Clear all lines used by input
         for (int i = 0; i < lineCount; i++)
         {
             Console.CursorTop = _inputStartLine + i;
@@ -89,7 +84,6 @@ public class SimpleTerminalUI
             Console.Write(new string(' ', Console.WindowWidth));
         }
 
-        // Return to start
         Console.CursorTop = _inputStartLine;
         Console.CursorLeft = 0;
     }
@@ -104,7 +98,6 @@ public class SimpleTerminalUI
         Console.Write(prompt);
         _inputStartColumn = prompt.Length;
 
-        // Split input by newlines and render each line
         var lines = _currentInput.Split('\n');
 
         for (int i = 0; i < lines.Length; i++)
@@ -116,11 +109,10 @@ public class SimpleTerminalUI
             else
             {
                 Console.WriteLine();
-                Console.Write("  " + lines[i]); // Indent continuation lines
+                Console.Write("  " + lines[i]);
             }
         }
 
-        // Calculate cursor position considering newlines
         PositionCursor();
     }
 
@@ -139,7 +131,7 @@ public class SimpleTerminalUI
         }
         else
         {
-            Console.CursorLeft = 2 + columnInLine; // 2 for indent
+            Console.CursorLeft = 2 + columnInLine;
         }
     }
 
@@ -225,7 +217,6 @@ public class SimpleTerminalUI
     {
         lock (_lock)
         {
-            // Move to new line after submitting
             Console.WriteLine();
         }
     }

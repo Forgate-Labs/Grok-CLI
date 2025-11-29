@@ -28,7 +28,6 @@ public class CustomTerminalUI
         lock (_lock)
         {
             _chatMessages.Add(message);
-            // Auto-scroll to bottom when new message arrives
             _scrollOffset = 0;
         }
         Render();
@@ -46,7 +45,6 @@ public class CustomTerminalUI
             {
                 _chatMessages.Add(text);
             }
-            // Auto-scroll to bottom when new content arrives
             _scrollOffset = 0;
         }
         Render();
@@ -80,7 +78,6 @@ public class CustomTerminalUI
                 var height = Console.WindowHeight;
                 var width = Console.WindowWidth;
 
-                // Only clear if size changed
                 if (height != _lastHeight || width != _lastWidth)
                 {
                     Console.Clear();
@@ -88,31 +85,25 @@ public class CustomTerminalUI
                     _lastWidth = width;
                 }
 
-                // Calculate area heights
                 var statusHeight = 1;
                 var inputHeight = 1;
                 var separatorHeight = 1;
-                var chatHeight = height - statusHeight - inputHeight - separatorHeight - 1; // -1 for safety
+                var chatHeight = height - statusHeight - inputHeight - separatorHeight - 1;
 
-                // Render chat area
                 RenderChatArea(chatHeight, width);
 
-                // Render separator
                 var separatorLine = chatHeight;
                 Console.SetCursorPosition(0, separatorLine);
                 Console.Write(new string('─', width));
 
-                // Render status area (processing + directory)
                 var statusLine = separatorLine + 1;
                 RenderStatusArea(statusLine, width);
 
-                // Render input area
                 var inputLine = statusLine + 1;
                 RenderInputArea(inputLine, width);
             }
             catch (ArgumentOutOfRangeException)
             {
-                // Ignore if terminal is being resized
             }
         }
     }
@@ -121,14 +112,12 @@ public class CustomTerminalUI
     {
         var displayLines = new List<string>();
 
-        // Word wrap messages to fit terminal width
         foreach (var message in _chatMessages)
         {
             var lines = WrapText(message, width);
             displayLines.AddRange(lines);
         }
 
-        // Calculate which lines to display based on scroll offset
         var totalLines = displayLines.Count;
         var maxOffset = Math.Max(0, totalLines - height);
         _scrollOffset = Math.Clamp(_scrollOffset, 0, maxOffset);
@@ -138,7 +127,6 @@ public class CustomTerminalUI
 
         var endLine = Math.Min(totalLines, startLine + height);
 
-        // Render visible lines
         for (int i = 0; i < height; i++)
         {
             Console.SetCursorPosition(0, i);
@@ -159,13 +147,10 @@ public class CustomTerminalUI
     {
         Console.SetCursorPosition(0, line);
 
-        // Left side: processing status
         var leftPart = _processingStatus;
 
-        // Right side: working directory
         var rightPart = _workingDirectory;
 
-        // Calculate spacing
         var availableWidth = width - leftPart.Length - rightPart.Length;
         var spacing = availableWidth > 0 ? new string(' ', availableWidth) : "";
 
@@ -186,19 +171,16 @@ public class CustomTerminalUI
     {
         Console.SetCursorPosition(0, line);
 
-        // Display prompt with input
         var display = "> " + _currentInput;
 
         if (display.Length > width)
         {
-            // Scroll input if too long
             var start = Math.Max(0, display.Length - width);
             display = display.Substring(start);
         }
 
         Console.Write(display.PadRight(width));
 
-        // Position cursor
         var cursorX = Math.Min(2 + _cursorPosition, width - 1);
         Console.SetCursorPosition(cursorX, line);
     }
@@ -221,7 +203,6 @@ public class CustomTerminalUI
             }
             else
             {
-                // Simple word wrap
                 var currentLine = "";
                 var words = line.Split(' ');
 
@@ -270,7 +251,7 @@ public class CustomTerminalUI
     private int GetMaxScrollOffset()
     {
         var height = Console.WindowHeight;
-        var chatHeight = height - 3; // status + input + separator
+        var chatHeight = height - 3;
         var totalLines = 0;
 
         foreach (var message in _chatMessages)
@@ -340,7 +321,7 @@ public class CustomTerminalUI
                     if ((keyInfo.Modifiers & ConsoleModifiers.Control) != 0)
                     {
                         ScrollUp();
-                        return; // Skip render at the end, ScrollUp already renders
+                        return;
                     }
                     break;
 
@@ -348,7 +329,7 @@ public class CustomTerminalUI
                     if ((keyInfo.Modifiers & ConsoleModifiers.Control) != 0)
                     {
                         ScrollDown();
-                        return; // Skip render at the end, ScrollDown already renders
+                        return;
                     }
                     break;
 

@@ -33,13 +33,11 @@ public class ChatService : IChatService
             ToolChoice = ChatToolChoice.CreateAutoChoice()
         };
 
-        // Add all available tools
         foreach (var tool in _tools)
         {
             options.Tools.Add(tool.GetChatTool());
         }
 
-        // Agentic loop: continue until there are no more tool calls
         bool continueLoop = true;
         while (continueLoop)
         {
@@ -48,19 +46,16 @@ public class ChatService : IChatService
             var toolCallsInfo = new Dictionary<int, ToolCallInfo>();
             var displayedTools = new HashSet<int>();
 
-            // Streaming
             var completionUpdates = _grokClient.StreamChatAsync(conversation, options);
 
             await foreach (var update in completionUpdates)
             {
-                // Detect tool calls
                 if (update.ToolCallUpdates != null && update.ToolCallUpdates.Count > 0)
                 {
                     foreach (var toolUpdate in update.ToolCallUpdates)
                     {
                         var toolIndex = toolUpdate.Index;
 
-                        // Initialize entry for this tool call
                         if (!toolCallsInfo.ContainsKey(toolIndex))
                         {
                             toolCallsInfo[toolIndex] = new ToolCallInfo(
@@ -69,21 +64,18 @@ public class ChatService : IChatService
                             );
                         }
 
-                        // Update information
                         if (!string.IsNullOrEmpty(toolUpdate.ToolCallId))
                             toolCallsInfo[toolIndex].Id = toolUpdate.ToolCallId;
 
                         if (!string.IsNullOrEmpty(toolUpdate.FunctionName))
                             toolCallsInfo[toolIndex].Name = toolUpdate.FunctionName;
 
-                        // Notify UI about tool call (only once)
                         if (!string.IsNullOrEmpty(toolUpdate.FunctionName) && !displayedTools.Contains(toolIndex))
                         {
                             OnToolCalled?.Invoke(toolUpdate.FunctionName, "");
                             displayedTools.Add(toolIndex);
                         }
 
-                        // Accumulate arguments
                         if (toolUpdate.FunctionArgumentsUpdate != null)
                         {
                             toolCallsInfo[toolIndex].Arguments.Append(toolUpdate.FunctionArgumentsUpdate.ToString());
@@ -91,7 +83,6 @@ public class ChatService : IChatService
                     }
                 }
 
-                // Stream text
                 if (update.ContentUpdate.Count > 0)
                 {
                     var text = update.ContentUpdate[0].Text;
@@ -107,10 +98,8 @@ public class ChatService : IChatService
                 pendingHighSurrogate = null;
             }
 
-            // If there are tool calls, execute and continue the loop
             if (toolCallsInfo.Count > 0)
             {
-                // Add assistant message with tool calls to the conversation
                 var assistantMsg = new AssistantChatMessage(assistantBuffer.ToString());
                 foreach (var kvp in toolCallsInfo)
                 {
@@ -123,16 +112,13 @@ public class ChatService : IChatService
                 }
                 conversation.Add(assistantMsg);
 
-                // Execute each tool call
                 foreach (var kvp in toolCallsInfo)
                 {
                     var toolInfo = kvp.Value;
                     var argsJson = toolInfo.Arguments.ToString();
 
-                    // Notify about arguments
                     OnToolCalled?.Invoke(toolInfo.Name, argsJson);
 
-                    // Execute tool
                     var result = await _toolExecutor.ExecuteAsync(toolInfo.Name, argsJson);
 
                     var resultText = result.Success ? result.Output : result.Error;
@@ -146,16 +132,13 @@ public class ChatService : IChatService
                     var resultPayload = result.ToModelPayload();
                     OnToolResult?.Invoke(toolInfo.Name, displayText);
 
-                    // Add result to conversation
                     conversation.Add(new ToolChatMessage(toolInfo.Id, resultPayload));
                 }
 
-                // Continue loop to process results
                 continueLoop = true;
             }
             else
             {
-                // No tool calls, save final response and exit loop
                 conversation.Add(new AssistantChatMessage(assistantBuffer.ToString()));
                 continueLoop = false;
             }

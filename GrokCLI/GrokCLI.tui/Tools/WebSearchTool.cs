@@ -28,7 +28,6 @@ public class WebSearchTool : ITool
 
     public Task<ToolExecutionResult> ExecuteAsync(string argumentsJson)
     {
-        // TODO: Implement real web search
         return Task.FromResult(
             ToolExecutionResult.CreateError("Web search not implemented yet (local only)")
         );

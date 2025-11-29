@@ -1,8 +1,5 @@
 namespace GrokCLI.Services;
 
-/// <summary>
-/// Command adapter implementation for translating commands between platforms
-/// </summary>
 public class CommandAdapter : ICommandAdapter
 {
     private readonly IPlatformService _platformService;

@@ -4,9 +4,6 @@ using System.Text;
 
 namespace GrokCLI.Services;
 
-/// <summary>
-/// Platform service implementation for detecting and handling platform-specific operations
-/// </summary>
 public class PlatformService : IPlatformService
 {
     public PlatformType Platform { get; }
@@ -55,32 +52,26 @@ public class PlatformService : IPlatformService
         if (string.IsNullOrWhiteSpace(path))
             return path;
 
-        // Expand ~
         if (path.StartsWith("~"))
         {
             path = path.Replace("~", HomeDirectory);
         }
 
-        // Normalize separators
         if (IsWindows)
         {
-            // Windows accepts both / and \
             path = path.Replace('/', '\\');
         }
         else
         {
-            // Linux/macOS uses only /
             path = path.Replace('\\', '/');
         }
 
-        // Normalize full path
         try
         {
             return Path.GetFullPath(path);
         }
         catch
         {
-            // If path normalization fails, return the cleaned path
             return path;
         }
     }
@@ -103,7 +94,6 @@ public class PlatformService : IPlatformService
         }
         else
         {
-            // Linux/macOS
             return new ProcessStartInfo
             {
                 FileName = "/bin/bash",
@@ -120,8 +110,6 @@ public class PlatformService : IPlatformService
 
     public string GetShellCommand(string command)
     {
-        // Can be used to translate commands between platforms
-        // For now, just return the command as-is
         return command;
     }
 }

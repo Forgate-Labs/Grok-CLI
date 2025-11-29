@@ -2,9 +2,6 @@ using System.Diagnostics;
 
 namespace GrokCLI.Services;
 
-/// <summary>
-/// Shell executor implementation for running commands with timeout and error handling
-/// </summary>
 public class ShellExecutor : IShellExecutor
 {
     private readonly IPlatformService _platformService;
@@ -55,7 +52,6 @@ public class ShellExecutor : IShellExecutor
                 }
                 catch
                 {
-                    // Ignore errors when killing the process
                 }
 
                 result.Error = $"Command timed out after {timeoutSeconds} seconds";

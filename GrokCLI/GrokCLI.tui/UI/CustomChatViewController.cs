@@ -20,7 +20,6 @@ public class CustomChatViewController
         _ui = ui;
         _isEnabled = isEnabled;
 
-        // Subscribe to ChatService events
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
@@ -35,11 +34,9 @@ public class CustomChatViewController
 
         _ui.ClearInput();
 
-        // Add user message to the UI
         _ui.AddChatMessage($"\n[You]: {userText}");
         _ui.AddChatMessage("[Grok]: ");
 
-        // Show processing status
         _ui.SetProcessingStatus("thinking...");
 
         try
@@ -78,12 +75,10 @@ public class CustomChatViewController
     {
         if (string.IsNullOrEmpty(args))
         {
-            // First notification - only the name
             _ui.AddChatMessage($"\n🔧 [Tool: {toolName}]");
         }
         else
         {
-            // Second notification - with arguments
             _ui.AddChatMessage($"📋 Arguments:\n{args}");
         }
     }
