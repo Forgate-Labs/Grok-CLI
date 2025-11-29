@@ -17,6 +17,7 @@ services.AddSingleton<IFileEditService, FileEditService>();
 services.AddSingleton<ISearchService, SearchService>();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
+services.AddSingleton<ITool, CommandExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
 services.AddSingleton<ITool, LocalFileReadTool>();
 services.AddSingleton<ITool, TestTool>();

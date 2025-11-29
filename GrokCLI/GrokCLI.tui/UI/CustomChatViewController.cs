@@ -41,7 +41,6 @@ public class CustomChatViewController
         _ui.ClearInput();
 
         _ui.AddChatMessage($"\n[You]: {userText}");
-        _ui.AddChatMessage("[Grok]: ");
 
         _ui.SetProcessingStatus("thinking...");
 
@@ -150,6 +149,9 @@ public class CustomChatViewController
             case "code_execution":
                 RenderCodeExecutionSummary(toolEvent);
                 break;
+            case "run_command":
+                RenderCommandSummary(toolEvent);
+                break;
             case "read_local_file":
                 RenderReadSummary(toolEvent);
                 break;
@@ -209,6 +211,42 @@ public class CustomChatViewController
         {
             message = toolEvent.Result.Success ? "Completed with no output" : "No error output";
         }
+
+        AddSummaryBlock(message);
+    }
+
+    private void RenderCommandSummary(ToolResultEvent toolEvent)
+    {
+        var command = TryGetString(toolEvent.ArgumentsJson, "command") ?? "";
+        var workingDirectory = TryGetString(toolEvent.ArgumentsJson, "working_directory");
+        var location = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Directory.GetCurrentDirectory()
+            : workingDirectory;
+        var snippet = Truncate(command.Replace("\n", " "), 80);
+        AddSummaryHeader($"Command(path: \"{location}\", command: \"{snippet}\")");
+
+        var successMessage = toolEvent.Result.Output;
+        if (!string.IsNullOrWhiteSpace(toolEvent.Result.Error))
+        {
+            successMessage = string.IsNullOrWhiteSpace(successMessage)
+                ? toolEvent.Result.Error
+                : $"{successMessage.TrimEnd()}\n{toolEvent.Result.Error}";
+        }
+
+        if (string.IsNullOrWhiteSpace(successMessage))
+        {
+            successMessage = $"Exit code {toolEvent.Result.ExitCode} with no output";
+        }
+
+        var failureMessage = !string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+            ? toolEvent.Result.Error
+            : (!string.IsNullOrWhiteSpace(toolEvent.Result.Output)
+                ? toolEvent.Result.Output
+                : $"Command failed with exit code {toolEvent.Result.ExitCode}");
+
+        var message = toolEvent.Result.Success
+            ? NormalizeOutput(successMessage)
+            : NormalizeOutput(failureMessage);
 
         AddSummaryBlock(message);
     }
