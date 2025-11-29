@@ -53,7 +53,7 @@ var controller = new SimpleChatViewController(chatService, ui, hasApiKey);
 if (!hasApiKey)
 {
     controller.ShowSystemMessage("XAI_API_KEY is not set. Set the environment variable or configure grok.config.json and restart.");
-    controller.ShowSystemMessage("Press Ctrl+Q to exit.");
+    controller.ShowSystemMessage("Press Ctrl+C to exit.");
     controller.ShowSystemMessage("");
 }
 else
@@ -71,26 +71,74 @@ while (ui.IsRunning)
     {
         var key = Console.ReadKey(true);
 
+        // Debug: Log key info to understand what's being pressed
+        var debugInfo = $"Key={key.Key}, KeyChar={(int)key.KeyChar}, Modifiers={key.Modifiers}";
+
         // Handle special keys
-        if (key.Key == ConsoleKey.Q && (key.Modifiers & ConsoleModifiers.Control) != 0)
+        // Ctrl+J produces KeyChar = '\n' (10) and Key = ConsoleKey.Enter on some terminals
+        // We need to check if Control modifier is present
+        if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
         {
-            // Ctrl+Q: Exit
-            ui.Stop();
-            break;
-        }
-        else if (key.Key == ConsoleKey.L && (key.Modifiers & ConsoleModifiers.Control) != 0 && hasApiKey)
-        {
-            // Ctrl+L: Clear chat
-            controller.ClearChat();
-            ui.UpdateInputLine();
+            // Ctrl+Enter or Ctrl+J: Insert newline in input
+            ui.InsertNewline();
         }
         else if (key.Key == ConsoleKey.Enter && hasApiKey)
         {
-            // Enter: Send message
-            _ = Task.Run(async () =>
+            // Enter: Check for /cmd command or send message
+            var userInput = ui.GetCurrentInput()?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(userInput) && userInput.StartsWith("/cmd "))
             {
-                await controller.SendMessageAsync();
-            });
+                // Execute direct terminal command
+                var command = userInput.Substring(5).Trim(); // Remove "/cmd "
+
+                if (!string.IsNullOrWhiteSpace(command))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        ui.HideInputLine();
+                        Console.WriteLine($"[You]: {userInput}");
+
+                        ui.ClearInput();
+                        ui.SetProcessingStatus("executing...");
+
+                        var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
+                        var result = await shellExecutor.ExecuteAsync(command, 300); // 5 minute timeout
+
+                        ui.SetProcessingStatus("");
+
+                        Console.WriteLine($"\n💻 [Command]: {command}");
+                        Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
+
+                        if (!string.IsNullOrEmpty(result.Output))
+                        {
+                            Console.WriteLine($"\n✅ [Output]:");
+                            Console.WriteLine(result.Output);
+                        }
+
+                        if (!string.IsNullOrEmpty(result.Error))
+                        {
+                            Console.WriteLine($"\n❌ [Error]:");
+                            Console.WriteLine(result.Error);
+                        }
+
+                        Console.WriteLine();
+                        ui.ShowInputLine();
+                    });
+                }
+                else
+                {
+                    ui.ClearInput();
+                }
+            }
+            else
+            {
+                // Send message to Grok
+                _ = Task.Run(async () =>
+                {
+                    await controller.SendMessageAsync();
+                });
+            }
         }
         else
         {

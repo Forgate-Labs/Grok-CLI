@@ -16,7 +16,7 @@ public class ChatWindow
     public ChatWindow()
     {
         // Main window
-        _window = new Window("Grok TUI - Agentic Mode (Ctrl+Q to exit)")
+        _window = new Window("Grok CLI - Agentic Mode (Ctrl+Q to exit)")
         {
             X = 0,
             Y = 0,

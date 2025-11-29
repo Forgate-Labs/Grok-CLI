@@ -72,8 +72,8 @@ public class SimpleChatViewController
 
     public void ShowWelcomeMessage()
     {
-        _ui.WriteLine("Grok TUI - Agentic Mode");
-        _ui.WriteLine("Commands: Ctrl+Q (exit) | Ctrl+L (clear)");
+        _ui.WriteLine("Grok CLI - Agentic Mode");
+        _ui.WriteLine("Commands: Ctrl+J (newline) | Ctrl+C (exit)");
         _ui.WriteLine("Model: grok-4-1-fast-reasoning");
         _ui.WriteLine("");
     }

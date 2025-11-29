@@ -12,6 +12,7 @@ public class SimpleTerminalUI
     private bool _isRunning = true;
     private int _inputStartColumn = 0;
     private bool _inputLineActive = true;
+    private int _inputStartLine = 0;
 
     public SimpleTerminalUI()
     {
@@ -77,32 +78,69 @@ public class SimpleTerminalUI
 
     private void ClearCurrentInputLine()
     {
-        // Save cursor position
-        var currentLine = Console.CursorTop;
-        var currentCol = Console.CursorLeft;
+        var lines = _currentInput.Split('\n');
+        var lineCount = lines.Length;
 
-        // Move to beginning of line
-        Console.CursorLeft = 0;
+        // Clear all lines used by input
+        for (int i = 0; i < lineCount; i++)
+        {
+            Console.CursorTop = _inputStartLine + i;
+            Console.CursorLeft = 0;
+            Console.Write(new string(' ', Console.WindowWidth));
+        }
 
-        // Clear the line
-        Console.Write(new string(' ', Console.WindowWidth));
-
-        // Move back to beginning
+        // Return to start
+        Console.CursorTop = _inputStartLine;
         Console.CursorLeft = 0;
     }
 
     private void DrawInputLine()
     {
+        _inputStartLine = Console.CursorTop;
+
         var statusPart = string.IsNullOrEmpty(_processingStatus) ? "" : $"{_processingStatus} | ";
         var prompt = $"{statusPart}{_workingDirectory} > ";
 
         Console.Write(prompt);
         _inputStartColumn = prompt.Length;
 
-        Console.Write(_currentInput);
+        // Split input by newlines and render each line
+        var lines = _currentInput.Split('\n');
 
-        // Position cursor
-        Console.CursorLeft = _inputStartColumn + _cursorPosition;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (i == 0)
+            {
+                Console.Write(lines[i]);
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.Write("  " + lines[i]); // Indent continuation lines
+            }
+        }
+
+        // Calculate cursor position considering newlines
+        PositionCursor();
+    }
+
+    private void PositionCursor()
+    {
+        var textBeforeCursor = _currentInput.Substring(0, _cursorPosition);
+        var lines = textBeforeCursor.Split('\n');
+        var lineIndex = lines.Length - 1;
+        var columnInLine = lines[lineIndex].Length;
+
+        Console.CursorTop = _inputStartLine + lineIndex;
+
+        if (lineIndex == 0)
+        {
+            Console.CursorLeft = _inputStartColumn + columnInLine;
+        }
+        else
+        {
+            Console.CursorLeft = 2 + columnInLine; // 2 for indent
+        }
     }
 
     public string GetCurrentInput()
@@ -119,6 +157,16 @@ public class SimpleTerminalUI
         {
             _currentInput = "";
             _cursorPosition = 0;
+            UpdateInputLine();
+        }
+    }
+
+    public void InsertNewline()
+    {
+        lock (_lock)
+        {
+            _currentInput = _currentInput.Insert(_cursorPosition, "\n");
+            _cursorPosition++;
             UpdateInputLine();
         }
     }
