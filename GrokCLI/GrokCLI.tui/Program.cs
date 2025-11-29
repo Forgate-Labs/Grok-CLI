@@ -12,11 +12,17 @@ services.AddSingleton<IPlatformService, PlatformService>();
 services.AddSingleton<ICommandAdapter, CommandAdapter>();
 services.AddSingleton<IShellExecutor, ShellExecutor>();
 services.AddSingleton<FileSystemHelper>();
+services.AddSingleton<IWorkingDirectoryService, WorkingDirectoryService>();
+services.AddSingleton<IFileEditService, FileEditService>();
+services.AddSingleton<ISearchService, SearchService>();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, WebSearchTool>();
 services.AddSingleton<ITool, LocalFileReadTool>();
 services.AddSingleton<ITool, TestTool>();
+services.AddSingleton<ITool, ChangeDirectoryTool>();
+services.AddSingleton<ITool, EditFileTool>();
+services.AddSingleton<ITool, SearchTool>();
 
 Console.OutputEncoding = new UTF8Encoding(false);
 Console.InputEncoding = new UTF8Encoding(false);
@@ -109,9 +115,11 @@ while (ui.IsRunning)
                     ui.ShowInputLine();
                 });
             }
-            else if (!string.IsNullOrWhiteSpace(userInput) && userInput.StartsWith("/cmd "))
+            else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.StartsWith("/cmd ") || userInput.StartsWith("cmd ")))
             {
-                var command = userInput.Substring(5).Trim();
+                var command = userInput.StartsWith("/cmd ")
+                    ? userInput.Substring(5).Trim()
+                    : userInput.Substring(4).Trim();
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
