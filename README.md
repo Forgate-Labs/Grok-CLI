@@ -2,8 +2,6 @@
 
 Terminal UI chat client for Grok 4.1 Fast with agentic (tool-calling) support, built on .NET and Terminal.Gui.
 
-![GrokCLI TUI](GrokCLI/images/TUI1.png)
-
 ## Features
 - Grok 4.1 Fast chat with streaming updates.
 - Agentic loop with tool calls (Python code execution, web search placeholder).
@@ -16,6 +14,19 @@ Terminal UI chat client for Grok 4.1 Fast with agentic (tool-calling) support, b
 - xAI API key (`XAI_API_KEY`)
 
 ## Setup
+Install the .NET SDK 10+ and ensure `~/.dotnet/tools` (Linux/macOS) or `%USERPROFILE%\.dotnet\tools` (Windows) is on your PATH.
+
+### Install as a global tool
+```bash
+dotnet tool install -g grok
+```
+
+If you already have it installed and want the latest version:
+```bash
+dotnet tool update -g grok
+```
+
+### Configure the API key
 Set the API key as an environment variable (recommended):
 ```bash
 export XAI_API_KEY=your_key_here

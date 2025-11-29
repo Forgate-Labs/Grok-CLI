@@ -6,6 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Version>1.0.0</Version>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>grok</ToolCommandName>
+    <PackageId>grok</PackageId>
+    <Authors>GrokCLI</Authors>
+    <Description>Terminal chat client for Grok with agentic tool support.</Description>
   </PropertyGroup>
 
  
