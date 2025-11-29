@@ -17,7 +17,7 @@ dotnet run --project GrokCLI/GrokCLI.tui
 ```
 
 ## Configure
-- Set `XAI_API_KEY` in the environment (recommended) or place `grok.config.json` in the working directory with:
+- Set `XAI_API_KEY` in the environment (recommended) or place `grok.config.json` in the tool installation directory (same directory as the tool binaries) with:
   ```json
   {
     "XAI_API_KEY": "your_key_here"

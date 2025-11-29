@@ -30,9 +30,12 @@ services.AddSingleton<ITool, ChangeDirectoryTool>();
 services.AddSingleton<ITool, EditFileTool>();
 services.AddSingleton<ITool, SearchTool>();
 
-var appConfig = LoadConfig() ?? new AppConfig
+var installDirectory = GetInstallDirectory();
+var configPath = Path.Combine(installDirectory, "grok.config.json");
+
+var appConfig = LoadConfig(configPath) ?? new AppConfig
 {
-    ConfigPath = Path.Combine(Directory.GetCurrentDirectory(), "grok.config.json")
+    ConfigPath = configPath
 };
 services.AddSingleton(appConfig);
 var displayMode = ResolveDisplayMode(args);
@@ -43,14 +46,19 @@ Console.InputEncoding = new UTF8Encoding(false);
 var apiKey = Environment.GetEnvironmentVariable("XAI_API_KEY");
 if (string.IsNullOrWhiteSpace(apiKey))
 {
-#if DEBUG
-    EnsureConfigInWorkingDirectory();
-#endif
     apiKey = appConfig?.XaiApiKey;
 }
-var hasApiKey = !string.IsNullOrWhiteSpace(apiKey);
 
-if (hasApiKey)
+if (string.IsNullOrWhiteSpace(apiKey))
+{
+    Console.Write("Enter XAI_API_KEY: ");
+    apiKey = Console.ReadLine()?.Trim();
+    apiKey = PersistApiKeyIfProvided(appConfig, apiKey);
+}
+
+bool HasApiKey() => !string.IsNullOrWhiteSpace(apiKey);
+
+if (HasApiKey())
 {
     services.AddSingleton<IGrokClient>(sp => new GrokClient(apiKey!));
     services.AddSingleton<IToolExecutor, ToolExecutor>();
@@ -69,15 +77,15 @@ if (hasApiKey)
 var serviceProvider = services.BuildServiceProvider();
 
 var ui = new SimpleTerminalUI();
-var chatService = hasApiKey
+var chatService = HasApiKey()
     ? serviceProvider.GetRequiredService<IChatService>()
     : new DisabledChatService();
-var controller = new SimpleChatViewController(chatService, ui, hasApiKey, displayMode);
+var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion());
 
-if (!hasApiKey)
+if (!HasApiKey())
 {
-    controller.ShowSystemMessage("XAI_API_KEY is not set. Set the environment variable or configure grok.config.json and restart.");
-    controller.ShowSystemMessage("Press Ctrl+C to exit.");
+    controller.ShowSystemMessage("XAI_API_KEY is not set. Enter it now to continue.");
+    controller.ShowSystemMessage("Type logout at any time to clear the key and lock the chat.");
     controller.ShowSystemMessage("");
 }
 else
@@ -97,11 +105,23 @@ while (ui.IsRunning)
         {
             ui.InsertNewline();
         }
-        else if (key.Key == ConsoleKey.Enter && hasApiKey)
+        else if (key.Key == ConsoleKey.Enter && HasApiKey())
         {
             var userInput = ui.GetCurrentInput()?.Trim();
 
-            if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrWhiteSpace(userInput) &&
+                (userInput.Equals("logout", StringComparison.OrdinalIgnoreCase)))
+            {
+                ui.ClearInput();
+                ui.HideInputLine();
+                Console.WriteLine("[You]: logout");
+                Console.WriteLine("Logging out and clearing XAI_API_KEY...");
+                ClearApiKey(appConfig);
+                apiKey = null;
+                Console.WriteLine("XAI_API_KEY cleared. Please restart or set a new key to continue.");
+                ui.ShowInputLine();
+            }
+            else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
             {
                 var command = "clear";
 
@@ -242,7 +262,28 @@ while (ui.IsRunning)
     }
     else
     {
-        Thread.Sleep(10);
+        if (!HasApiKey())
+        {
+            ui.HideInputLine();
+            Console.Write("Enter XAI_API_KEY: ");
+            var entered = Console.ReadLine()?.Trim();
+            apiKey = PersistApiKeyIfProvided(appConfig, entered);
+
+            if (HasApiKey())
+            {
+                Console.WriteLine("API key saved. Restart the application to enable chat.");
+            }
+            else
+            {
+                Console.WriteLine("No API key provided. Chat remains locked.");
+            }
+
+            ui.ShowInputLine();
+        }
+        else
+        {
+            Thread.Sleep(10);
+        }
     }
 }
 
@@ -267,7 +308,7 @@ ChatDisplayMode ResolveDisplayMode(string[] args)
 
     var env = Environment.GetEnvironmentVariable("GROK_MODE");
     if (!string.IsNullOrWhiteSpace(env))
-        return ParseDisplayMode(env);
+    return ParseDisplayMode(env);
 
     return ChatDisplayMode.Normal;
 }
@@ -283,9 +324,46 @@ ChatDisplayMode ParseDisplayMode(string? value)
     return ChatDisplayMode.Normal;
 }
 
-AppConfig? LoadConfig()
+string GetInstallDirectory()
 {
-    var configPath = Path.Combine(Directory.GetCurrentDirectory(), "grok.config.json");
+    var baseDir = AppContext.BaseDirectory;
+    return string.IsNullOrWhiteSpace(baseDir)
+        ? Directory.GetCurrentDirectory()
+        : Path.GetFullPath(baseDir);
+}
+
+string GetVersion()
+{
+    var assembly = typeof(Program).Assembly;
+    var info = assembly.GetName();
+    return info.Version?.ToString() ?? "1.0.0";
+}
+
+string? PersistApiKeyIfProvided(AppConfig? config, string? key)
+{
+    if (string.IsNullOrWhiteSpace(key))
+        return null;
+
+    if (config != null)
+    {
+        config.XaiApiKey = key;
+        SaveConfig(config);
+    }
+
+    return key;
+}
+
+void ClearApiKey(AppConfig? config)
+{
+    if (config == null)
+        return;
+
+    config.XaiApiKey = null;
+    SaveConfig(config);
+}
+
+AppConfig? LoadConfig(string configPath)
+{
     if (!File.Exists(configPath))
         return CreateDefaultConfig(configPath);
 
@@ -372,29 +450,6 @@ AppConfig? LoadConfig()
 
     return CreateDefaultConfig(configPath);
 }
-
-#if DEBUG
-void EnsureConfigInWorkingDirectory()
-{
-    var workingDir = Directory.GetCurrentDirectory();
-    var fileName = "grok.config.json";
-    var sourcePath = FindConfigInAncestors(workingDir, fileName);
-    if (sourcePath == null)
-        return;
-
-    var destinationPath = Path.Combine(workingDir, fileName);
-    if (string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
-        return;
-
-    try
-    {
-        File.Copy(sourcePath, destinationPath, true);
-    }
-    catch
-    {
-    }
-}
-#endif
 
 string? FindConfigInAncestors(string startPath, string fileName)
 {

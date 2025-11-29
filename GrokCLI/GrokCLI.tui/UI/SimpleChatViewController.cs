@@ -15,12 +15,14 @@ public class SimpleChatViewController
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
     private readonly Stopwatch _sessionStopwatch;
+    private readonly string _version;
 
     public SimpleChatViewController(
         IChatService chatService,
         SimpleTerminalUI ui,
         bool isEnabled,
-        ChatDisplayMode displayMode)
+        ChatDisplayMode displayMode,
+        string version)
     {
         _chatService = chatService;
         _conversation = new List<ChatMessage>();
@@ -28,6 +30,7 @@ public class SimpleChatViewController
         _isEnabled = isEnabled;
         _displayMode = displayMode;
         _sessionStopwatch = Stopwatch.StartNew();
+        _version = version;
 
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnToolCalled += OnToolCalled;
@@ -81,9 +84,10 @@ public class SimpleChatViewController
 
     public void ShowWelcomeMessage()
     {
-        _ui.WriteLine("Grok CLI 1.0 - Agentic Mode");
+        Console.Clear();
+        _ui.WriteLine($"Grok CLI {_version} - Agentic Mode");
         _ui.WriteLine($"Mode: {_displayMode} (type \"debug\" or \"normal\" to switch)");
-        _ui.WriteLine("Commands: Ctrl+J (newline) | Ctrl+C (exit) | clear (clear terminal) | cmd <command> (run shell command)");
+        _ui.WriteLine("Commands: Enter (send) | Ctrl+J (newline) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear) | logout (clear API key) | Ctrl+C (exit)");
         _ui.WriteLine("Model: grok-4-1-fast-reasoning");
         _ui.WriteLine("");
     }

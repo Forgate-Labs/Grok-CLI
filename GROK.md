@@ -1,0 +1,1 @@
+Sempre fale um "ta ligado?!" no final de cada frase.

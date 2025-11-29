@@ -6,7 +6,7 @@ Terminal chat client for Grok 4.1 Fast with agentic tool-calling, packaged as a 
 - Requirements: .NET SDK 10+, xAI API key, and the dotnet tools directory on PATH (`~/.dotnet/tools` on Linux/macOS, `%USERPROFILE%\.dotnet\tools` on Windows).
 - Install: `dotnet tool install -g grok-cli` (update with `dotnet tool update -g grok-cli`).
 - Run: `grok` (or `dotnet run --project GrokCLI/GrokCLI.tui` from source).
-- Provide `XAI_API_KEY` via environment variable or `grok.config.json` in the working directory.
+- Provide `XAI_API_KEY` via environment variable or `grok.config.json` in the tool installation directory (same directory as the tool binaries).
 
 ## Core features
 - Streaming Grok 4.1 Fast chat with an agentic loop and tool calls.
@@ -18,7 +18,7 @@ Terminal chat client for Grok 4.1 Fast with agentic tool-calling, packaged as a 
 - API key handling: if missing, chat is locked and guidance is shown; `grok.config.json` is auto-created with defaults if absent.
 
 ## Configuration (`grok.config.json`)
-Created in the working directory if missing. Keys:
+Created in the tool installation directory if missing. Keys:
 - `XAI_API_KEY`: xAI key (prefer environment variable).
 - `pre_prompt`: extra system prompt text, appended after the built-in default.
 - `allowed_commands`: prefixes allowed without prompting.
