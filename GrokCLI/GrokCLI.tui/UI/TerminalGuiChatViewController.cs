@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -425,7 +427,8 @@ public class TerminalGuiChatViewController : IDisposable
             }
             else
             {
-                AppendHistoryBlock(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText));
+                var details = GetEditDetails(toolEvent);
+                AppendHistoryBlock(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText), details);
             }
             _assistantBlockOpen = false;
         });
@@ -491,9 +494,9 @@ public class TerminalGuiChatViewController : IDisposable
         _assistantBlockOpen = true;
     }
 
-    private void AppendHistoryBlock(string text)
+    private void AppendHistoryBlock(string text, List<string>? detailLines = null)
     {
-        _historyManager?.AppendToNewBlock(text);
+        _historyManager?.AppendToNewBlock(text, detailLines);
         _assistantBlockOpen = false;
     }
 
@@ -511,6 +514,44 @@ public class TerminalGuiChatViewController : IDisposable
         else
         {
             action();
+        }
+    }
+
+    private List<string>? GetEditDetails(ToolResultEvent toolEvent)
+    {
+        if (!string.Equals(toolEvent.ToolName, "edit_file", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!toolEvent.Result.Success)
+            return null;
+
+        var output = toolEvent.Result.Output;
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("file_path", out var pathProp))
+                return null;
+
+            var path = pathProp.GetString();
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+
+            var resolved = Path.IsPathRooted(path)
+                ? path
+                : Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path));
+
+            if (!File.Exists(resolved))
+                return null;
+
+            return File.ReadAllLines(resolved).ToList();
+        }
+        catch
+        {
+            return null;
         }
     }
 

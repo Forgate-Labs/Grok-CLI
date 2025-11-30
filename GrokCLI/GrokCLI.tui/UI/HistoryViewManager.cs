@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Terminal.Gui;
@@ -52,13 +53,13 @@ public sealed class HistoryViewManager
         AddBlockFromText(text);
     }
 
-    public void AddBlock(string title, string body)
+    public void AddBlock(string title, string body, List<string>? detailLines = null)
     {
-        var block = new HistoryBlock(title, body);
+        var block = new HistoryBlock(title, body, detailLines);
         AttachBlock(block);
     }
 
-    public void AddBlockFromText(string text)
+    public void AddBlockFromText(string text, List<string>? detailLines = null)
     {
         var normalized = SummaryTextFormatter.Normalize(text);
         var lines = normalized.Split('\n');
@@ -76,7 +77,8 @@ public sealed class HistoryViewManager
         }
 
         var (title, body) = SplitTitleAndBody(lines, firstLine);
-        AddBlock(title, body);
+        var details = detailLines ?? TryGetCreateDetails(firstLine, body);
+        AddBlock(title, body, details);
     }
 
     public void Append(string text)
@@ -91,9 +93,9 @@ public sealed class HistoryViewManager
         LayoutBlocks(true);
     }
 
-    public void AppendToNewBlock(string text)
+    public void AppendToNewBlock(string text, List<string>? detailLines = null)
     {
-        AddBlockFromText(text);
+        AddBlockFromText(text, detailLines);
     }
 
     public void AppendReasoning(string text)
@@ -212,7 +214,7 @@ public sealed class HistoryViewManager
             Height = Dim.Fill(1),
             ReadOnly = true,
             WordWrap = true,
-            Text = block.Body
+            Text = block.GetDetailText()
         };
 
         var closeButton = new Button("Close")
@@ -286,6 +288,9 @@ public sealed class HistoryViewManager
         if (_blocks[^1] is not HistoryBlock previous)
             return false;
 
+        if (previous.HasDetails || block.HasDetails)
+            return false;
+
         if (!string.Equals(previous.Title, block.Title, StringComparison.Ordinal))
             return false;
 
@@ -347,6 +352,75 @@ public sealed class HistoryViewManager
 
         return $"{line}\n{body}";
     }
+
+    private List<string>? TryGetCreateDetails(string firstLine, string body)
+    {
+        if (!IsCreateHeader(firstLine))
+            return null;
+
+        var path = ExtractCreatePath(firstLine, body);
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        var resolved = Path.IsPathRooted(path)
+            ? path
+            : Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), path));
+
+        if (!File.Exists(resolved))
+            return null;
+
+        try
+        {
+            return File.ReadAllLines(resolved).ToList();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private bool IsCreateHeader(string firstLine)
+    {
+        if (string.IsNullOrWhiteSpace(firstLine))
+            return false;
+
+        var normalized = TrimPrefix(firstLine.Trim(), "● ");
+        return normalized.StartsWith("Create(", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? ExtractCreatePath(string firstLine, string body)
+    {
+        var normalized = TrimPrefix(firstLine.Trim(), "● ");
+        var start = normalized.IndexOf('(');
+        var end = normalized.LastIndexOf(')');
+
+        if (start >= 0 && end > start)
+            return normalized[(start + 1)..end].Trim().Trim('"');
+
+        var normalizedBody = SummaryTextFormatter.Normalize(body);
+        var lines = normalizedBody.Split('\n');
+
+        foreach (var line in lines)
+        {
+            var candidate = TrimPrefix(line.Trim(), "⎿ ");
+            candidate = candidate.Trim().Trim('"');
+            if (candidate.Length == 0)
+                continue;
+
+            if (candidate.StartsWith("(") && candidate.EndsWith(")") && candidate.Length > 2)
+                candidate = candidate[1..^1];
+
+            if (candidate.Length == 0)
+                continue;
+
+            if (candidate.StartsWith("File created", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            return candidate;
+        }
+
+        return null;
+    }
 }
 
 internal interface IHistoryItem
@@ -361,8 +435,9 @@ internal interface IHistoryItem
 internal sealed class HistoryBlock : IHistoryItem
 {
     private readonly StringBuilder _bodyBuilder = new();
+    private readonly List<string>? _detailLines;
 
-    public HistoryBlock(string title, string body)
+    public HistoryBlock(string title, string body, IEnumerable<string>? detailLines = null)
     {
         Title = string.IsNullOrWhiteSpace(title) ? "Message" : title;
         Frame = new FrameView(Title)
@@ -383,6 +458,8 @@ internal sealed class HistoryBlock : IHistoryItem
             TextAlignment = TextAlignment.Left
         };
         Frame.Add(BodyView);
+        if (detailLines != null)
+            _detailLines = new List<string>(detailLines);
         SetBody(body);
     }
 
@@ -393,6 +470,25 @@ internal sealed class HistoryBlock : IHistoryItem
     public bool AcceptsAppend => true;
     public bool IsAssistant => false;
     public string Body => _bodyBuilder.ToString();
+    public bool HasDetails => _detailLines != null && _detailLines.Count > 0;
+
+    public string GetDetailText()
+    {
+        if (!HasDetails)
+            return Body;
+
+        var builder = new StringBuilder();
+        var normalizedBody = SummaryTextFormatter.Normalize(Body);
+        builder.Append(normalizedBody);
+        builder.AppendLine();
+        builder.AppendLine();
+        foreach (var line in _detailLines!)
+        {
+            builder.AppendLine(line);
+        }
+
+        return builder.ToString().TrimEnd('\n');
+    }
 
     public void Append(string text)
     {
