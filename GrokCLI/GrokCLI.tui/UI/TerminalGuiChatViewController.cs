@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
+using System.Text.RegularExpressions;
 using GrokCLI.Models;
 using GrokCLI.Services;
 using OpenAI.Chat;
@@ -26,6 +27,12 @@ public class TerminalGuiChatViewController : IDisposable
     private const int PlanCollapsedHeight = 0;
     private const int InputHeight = 2;
     private const int StatusHeight = 1;
+    private sealed class EditResultMetadata
+    {
+        public string? FilePath { get; init; }
+        public string? BackupPath { get; init; }
+        public int LinesModified { get; init; }
+    }
     private bool _welcomeShown;
     private Toplevel? _top;
     private Window? _window;
@@ -418,15 +425,22 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void OnToolCalled(ToolCallEvent toolEvent)
     {
-        if (_displayMode != ChatDisplayMode.Debug)
+        if (_displayMode == ChatDisplayMode.Normal)
             return;
 
         EnqueueUi(() =>
         {
-            var args = string.IsNullOrWhiteSpace(toolEvent.ArgumentsJson)
-                ? ""
-                : toolEvent.ArgumentsJson;
-            AppendHistory($"\n[tool] {toolEvent.ToolName} {args}\n");
+            if (_displayMode == ChatDisplayMode.Debug)
+            {
+                var args = string.IsNullOrWhiteSpace(toolEvent.ArgumentsJson)
+                    ? ""
+                    : toolEvent.ArgumentsJson;
+                AppendHistory($"\n[tool] {toolEvent.ToolName} {args}\n");
+            }
+            else
+            {
+                AppendHistory(BuildNormalToolCall(toolEvent));
+            }
         });
     }
 
@@ -435,24 +449,32 @@ public class TerminalGuiChatViewController : IDisposable
         if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
         {
             HandlePlan(toolEvent);
+            if (_displayMode == ChatDisplayMode.Normal)
+                return;
             return;
         }
 
         if (string.Equals(toolEvent.ToolName, "workflow_done", StringComparison.OrdinalIgnoreCase))
         {
             EnqueueUi(ClearPlan);
+            if (_displayMode == ChatDisplayMode.Normal)
+                return;
         }
 
-        if (_displayMode == ChatDisplayMode.Debug)
+        EnqueueUi(() =>
         {
-            EnqueueUi(() =>
+            if (_displayMode == ChatDisplayMode.Debug)
             {
                 var output = toolEvent.Result.Success
                     ? toolEvent.Result.Output
                     : toolEvent.Result.Error;
                 AppendHistory($"\n[result] {toolEvent.ToolName}: {output}\n");
-            });
-        }
+            }
+            else
+            {
+                AppendHistory(BuildNormalToolSummary(toolEvent));
+            }
+        });
     }
 
     private void HandlePlan(ToolResultEvent toolEvent)
@@ -621,6 +643,391 @@ public class TerminalGuiChatViewController : IDisposable
         _historyView.Height = Dim.Fill(reservedHeight);
 
         _window.SetNeedsDisplay();
+    }
+
+    private string BuildNormalToolCall(ToolCallEvent toolEvent)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine();
+        builder.AppendLine($"🔧 [Tool: {toolEvent.ToolName}]");
+
+        if (!string.IsNullOrWhiteSpace(toolEvent.ArgumentsJson))
+        {
+            builder.AppendLine("📋 Arguments:");
+            builder.AppendLine(toolEvent.ArgumentsJson);
+        }
+
+        return builder.ToString();
+    }
+
+    private string BuildNormalToolSummary(ToolResultEvent toolEvent)
+    {
+        return toolEvent.ToolName switch
+        {
+            "search" => BuildSearchSummary(toolEvent),
+            "code_execution" => BuildCodeExecutionSummary(toolEvent),
+            "run_command" => BuildCommandSummary(toolEvent),
+            "read_local_file" => BuildReadSummary(toolEvent),
+            "edit_file" => BuildEditSummary(toolEvent),
+            "change_directory" => BuildChangeDirectorySummary(toolEvent),
+            "web_search" => BuildWebSearchSummary(toolEvent),
+            "test" => BuildTestSummary(toolEvent),
+            "workflow_done" => BuildDoneSummary(),
+            _ => BuildGenericSummary(toolEvent)
+        };
+    }
+
+    private string BuildSearchSummary(ToolResultEvent toolEvent)
+    {
+        var pattern = TryGetString(toolEvent.ArgumentsJson, "pattern") ?? "";
+        var path = TryGetString(toolEvent.ArgumentsJson, "path") ?? Directory.GetCurrentDirectory();
+
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"Search(pattern: \"{pattern}\", path: \"{path}\")"));
+
+        if (toolEvent.Result.Success)
+        {
+            var matchCount = TryGetInt(toolEvent.Result.Output, "total_matches") ?? 0;
+            var noun = matchCount == 1 ? "match" : "matches";
+            builder.Append(BuildSummaryLineText($"Found {matchCount} {noun}"));
+        }
+        else
+        {
+            var message = string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                ? "Search failed"
+                : toolEvent.Result.Error;
+            builder.Append(BuildSummaryLineText(message));
+        }
+
+        return builder.ToString();
+    }
+
+    private string BuildCodeExecutionSummary(ToolResultEvent toolEvent)
+    {
+        var code = TryGetString(toolEvent.ArgumentsJson, "code") ?? "";
+        var snippet = Truncate(code.Replace("\n", " "), 80);
+        var path = Directory.GetCurrentDirectory();
+
+        var message = toolEvent.Result.Success
+            ? NormalizeOutput(toolEvent.Result.Output)
+            : NormalizeOutput(string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                ? "Execution failed"
+                : toolEvent.Result.Error);
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            message = toolEvent.Result.Success ? "Completed with no output" : "No error output";
+        }
+
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"Python(path: \"{path}\", command: \"{snippet}\")"));
+        builder.Append(BuildSummaryBlockText(message));
+        return builder.ToString();
+    }
+
+    private string BuildCommandSummary(ToolResultEvent toolEvent)
+    {
+        var command = TryGetString(toolEvent.ArgumentsJson, "command") ?? "";
+        var workingDirectory = TryGetString(toolEvent.ArgumentsJson, "working_directory");
+        var location = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Directory.GetCurrentDirectory()
+            : workingDirectory;
+        var snippet = Truncate(command.Replace("\n", " "), 80);
+
+        var successMessage = toolEvent.Result.Output;
+        if (!string.IsNullOrWhiteSpace(toolEvent.Result.Error))
+        {
+            successMessage = string.IsNullOrWhiteSpace(successMessage)
+                ? toolEvent.Result.Error
+                : $"{successMessage.TrimEnd()}\n{toolEvent.Result.Error}";
+        }
+
+        if (string.IsNullOrWhiteSpace(successMessage))
+        {
+            successMessage = $"Exit code {toolEvent.Result.ExitCode} with no output";
+        }
+
+        var failureMessage = !string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+            ? toolEvent.Result.Error
+            : (!string.IsNullOrWhiteSpace(toolEvent.Result.Output)
+                ? toolEvent.Result.Output
+                : $"Command failed with exit code {toolEvent.Result.ExitCode}");
+
+        var message = toolEvent.Result.Success
+            ? NormalizeOutput(successMessage)
+            : NormalizeOutput(failureMessage);
+
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"Command(path: \"{location}\", command: \"{snippet}\")"));
+        builder.Append(BuildSummaryBlockText(message));
+        return builder.ToString();
+    }
+
+    private string BuildReadSummary(ToolResultEvent toolEvent)
+    {
+        var path = TryGetString(toolEvent.ArgumentsJson, "path") ?? "unknown";
+        if (toolEvent.Result.Success)
+        {
+            var lines = CountLines(toolEvent.Result.Output);
+            var tokens = EstimateTokenCount(toolEvent.Result.Output);
+            var builder = new StringBuilder();
+            builder.Append(BuildSummaryHeaderText($"Read({path})"));
+            builder.Append(BuildSummaryLineText($"Read {lines} lines ({tokens} tokens)"));
+            return builder.ToString();
+        }
+
+        var message = string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+            ? "Read failed"
+            : toolEvent.Result.Error;
+        var errorBuilder = new StringBuilder();
+        errorBuilder.Append(BuildSummaryHeaderText($"Read({path})"));
+        errorBuilder.Append(BuildSummaryLineText(NormalizeOutput(message)));
+        return errorBuilder.ToString();
+    }
+
+    private string BuildEditSummary(ToolResultEvent toolEvent)
+    {
+        var path = TryGetString(toolEvent.ArgumentsJson, "file_path") ?? "unknown";
+        if (!toolEvent.Result.Success)
+        {
+            var errorMessage = string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                ? "Update failed"
+                : toolEvent.Result.Error;
+            var builder = new StringBuilder();
+            builder.Append(BuildSummaryHeaderText($"Update({path})"));
+            builder.Append(BuildSummaryLineText(NormalizeOutput(errorMessage)));
+            return builder.ToString();
+        }
+
+        var metadata = ParseEditMetadata(toolEvent.Result.Output);
+        var count = metadata?.LinesModified ?? 0;
+        var successBuilder = new StringBuilder();
+        successBuilder.Append(BuildSummaryHeaderText($"Update({path})"));
+        successBuilder.Append(BuildSummaryLineText($"Update {count} lines"));
+        return successBuilder.ToString();
+    }
+
+    private string BuildChangeDirectorySummary(ToolResultEvent toolEvent)
+    {
+        var path = TryGetString(toolEvent.ArgumentsJson, "path") ?? "";
+
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"ChangeDirectory(path: \"{path}\")"));
+
+        if (toolEvent.Result.Success)
+        {
+            var destination = TryGetString(toolEvent.Result.Output, "current_directory") ?? "unknown";
+            builder.Append(BuildSummaryLineText($"Now at {destination}"));
+        }
+        else
+        {
+            var message = string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                ? "Directory change failed"
+                : toolEvent.Result.Error;
+            builder.Append(BuildSummaryLineText(NormalizeOutput(message)));
+        }
+
+        return builder.ToString();
+    }
+
+    private string BuildWebSearchSummary(ToolResultEvent toolEvent)
+    {
+        var query = TryGetString(toolEvent.ArgumentsJson, "query") ?? "";
+        var message = string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+            ? "Web search is not available"
+            : toolEvent.Result.Error;
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"WebSearch(query: \"{query}\")"));
+        builder.Append(BuildSummaryLineText(NormalizeOutput(message)));
+        return builder.ToString();
+    }
+
+    private string BuildTestSummary(ToolResultEvent toolEvent)
+    {
+        var message = toolEvent.Result.Success
+            ? toolEvent.Result.Output
+            : string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                ? "Test failed"
+                : toolEvent.Result.Error;
+        message = NormalizeOutput(message);
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText("Test()"));
+        builder.Append(BuildSummaryBlockText(message));
+        return builder.ToString();
+    }
+
+    private string BuildDoneSummary()
+    {
+        var durationText = GetDurationText();
+        return $"\n{BuildDoneLine(durationText)}\n";
+    }
+
+    private string BuildGenericSummary(ToolResultEvent toolEvent)
+    {
+        var message = toolEvent.Result.Success && !string.IsNullOrWhiteSpace(toolEvent.Result.Output)
+            ? toolEvent.Result.Output
+            : toolEvent.Result.Success
+                ? "Completed"
+                : string.IsNullOrWhiteSpace(toolEvent.Result.Error)
+                    ? "Tool failed"
+                    : toolEvent.Result.Error;
+        message = NormalizeOutput(message);
+        var builder = new StringBuilder();
+        builder.Append(BuildSummaryHeaderText($"{toolEvent.ToolName}()"));
+        builder.Append(BuildSummaryBlockText(message));
+        return builder.ToString();
+    }
+
+    private static string NormalizeOutput(string text)
+    {
+        return text.ReplaceLineEndings("\n").TrimEnd('\n');
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+            return value;
+
+        return value[..maxLength] + "...";
+    }
+
+    private static int EstimateTokenCount(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return 0;
+
+        return Regex.Matches(content, @"\S+").Count;
+    }
+
+    private static int CountLines(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return 0;
+
+        return content.Split('\n').Length;
+    }
+
+    private static int? TryGetInt(string? json, string property)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty(property, out var prop) && prop.ValueKind == JsonValueKind.Number)
+            {
+                return prop.GetInt32();
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static string? TryGetString(string? json, string property)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty(property, out var prop))
+            {
+                return prop.GetString();
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private static EditResultMetadata? ParseEditMetadata(string output)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(output);
+            var root = doc.RootElement;
+
+            return new EditResultMetadata
+            {
+                FilePath = root.TryGetProperty("file_path", out var filePathProp)
+                    ? filePathProp.GetString()
+                    : null,
+                BackupPath = root.TryGetProperty("backup_path", out var backupProp)
+                    ? backupProp.GetString()
+                    : null,
+                LinesModified = root.TryGetProperty("lines_modified", out var linesProp)
+                    ? linesProp.GetInt32()
+                    : 0
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private string GetDurationText()
+    {
+        return FormatDuration((int)Math.Max(0, _sessionStopwatch.Elapsed.TotalSeconds));
+    }
+
+    private static string FormatDuration(int seconds)
+    {
+        var minutes = seconds / 60;
+        var remainingSeconds = seconds % 60;
+        return $"{minutes:00}m {remainingSeconds:00}s";
+    }
+
+    private string BuildSummaryHeaderText(string text)
+    {
+        return $"\n● {text}\n";
+    }
+
+    private string BuildSummaryLineText(string text)
+    {
+        return $"⎿ {text}\n";
+    }
+
+    private string BuildSummaryBlockText(string text)
+    {
+        var builder = new StringBuilder();
+        foreach (var line in SummarizeLines(NormalizeOutput(text).Split('\n')))
+        {
+            builder.Append(BuildSummaryLineText(line));
+        }
+
+        return builder.ToString();
+    }
+
+    private IEnumerable<string> SummarizeLines(string[] lines)
+    {
+        if (lines.Length <= 4)
+            return lines;
+
+        return new[]
+        {
+            lines[0],
+            $"... +{lines.Length - 3} lines",
+            lines[^2],
+            lines[^1]
+        };
+    }
+
+    private string BuildDoneLine(string durationText)
+    {
+        var prefix = $"─ Worked for {durationText} ";
+        var width = _window?.Frame.Width ?? 80;
+        var remaining = Math.Max(0, width - prefix.Length);
+        return prefix + new string('─', remaining);
     }
 
     private sealed record PlanPayload(string? Title, List<PlanEntry> Items);
