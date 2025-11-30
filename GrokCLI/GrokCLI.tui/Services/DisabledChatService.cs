@@ -6,6 +6,7 @@ namespace GrokCLI.Services;
 public class DisabledChatService : IChatService
 {
     public event Action<string>? OnTextReceived = delegate { };
+    public event Action<string>? OnReasoningReceived = delegate { };
     public event Action<ToolCallEvent>? OnToolCalled = delegate { };
     public event Action<ToolResultEvent>? OnToolResult = delegate { };
 

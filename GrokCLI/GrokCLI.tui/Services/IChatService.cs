@@ -7,6 +7,7 @@ namespace GrokCLI.Services;
 public interface IChatService
 {
     event Action<string>? OnTextReceived;
+    event Action<string>? OnReasoningReceived;
     event Action<ToolCallEvent>? OnToolCalled;
     event Action<ToolResultEvent>? OnToolResult;
 

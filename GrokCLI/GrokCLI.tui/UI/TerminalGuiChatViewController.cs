@@ -62,6 +62,7 @@ public class TerminalGuiChatViewController : IDisposable
         _sessionStopwatch = Stopwatch.StartNew();
 
         _chatService.OnTextReceived += OnTextReceived;
+        _chatService.OnReasoningReceived += OnReasoningReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
     }
@@ -81,6 +82,7 @@ public class TerminalGuiChatViewController : IDisposable
     public void Dispose()
     {
         _chatService.OnTextReceived -= OnTextReceived;
+        _chatService.OnReasoningReceived -= OnReasoningReceived;
         _chatService.OnToolCalled -= OnToolCalled;
         _chatService.OnToolResult -= OnToolResult;
         if (_cts != null)
@@ -176,6 +178,7 @@ public class TerminalGuiChatViewController : IDisposable
             CanFocus = false,
             ColorScheme = baseScheme
         };
+        _planFrame.Visible = false;
 
         _planTitleLabel = new Label
         {
@@ -258,8 +261,6 @@ public class TerminalGuiChatViewController : IDisposable
             return;
 
         var builder = new StringBuilder();
-        builder.AppendLine($"Grok CLI {_version} - Agentic Mode");
-        builder.AppendLine($"Mode: {_displayMode} (type \"debug\" or \"normal\" to switch)");
         builder.AppendLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
         builder.AppendLine($"Config: {_configPath}");
         builder.AppendLine("Model: grok-4-1-fast-reasoning");
@@ -421,6 +422,11 @@ public class TerminalGuiChatViewController : IDisposable
     private void OnTextReceived(string text)
     {
         EnqueueUi(() => AppendHistory(text));
+    }
+
+    private void OnReasoningReceived(string text)
+    {
+        EnqueueUi(() => AppendReasoning(text));
     }
 
     private void OnToolCalled(ToolCallEvent toolEvent)
@@ -616,6 +622,15 @@ public class TerminalGuiChatViewController : IDisposable
     private void AppendCommandOutput(string text)
     {
         AppendHistory(text);
+    }
+
+    private void AppendReasoning(string text)
+    {
+        var normalized = NormalizeOutput(text);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        AppendHistory(BuildSummaryBlockText(normalized, Color.Gray));
     }
 
     private void EnqueueUi(Action action)
@@ -992,17 +1007,19 @@ public class TerminalGuiChatViewController : IDisposable
         return $"\n● {text}\n";
     }
 
-    private string BuildSummaryLineText(string text)
+    private string BuildSummaryLineText(string text, Color? color = null)
     {
-        return $"⎿ {text}\n";
+        return color.HasValue
+            ? $"⎿ {text}\n"
+            : $"⎿ {text}\n";
     }
 
-    private string BuildSummaryBlockText(string text)
+    private string BuildSummaryBlockText(string text, Color? colorOverride = null)
     {
         var builder = new StringBuilder();
         foreach (var line in SummarizeLines(NormalizeOutput(text).Split('\n')))
         {
-            builder.Append(BuildSummaryLineText(line));
+            builder.Append(BuildSummaryLineText(line, colorOverride));
         }
 
         return builder.ToString();

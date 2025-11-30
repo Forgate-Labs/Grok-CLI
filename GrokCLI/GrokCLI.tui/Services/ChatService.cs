@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using System.Text.Json;
 using GrokCLI.Models;
@@ -6,6 +7,7 @@ using OpenAI.Chat;
 using System.Linq;
 using System.Threading;
 
+#pragma warning disable SCME0001
 namespace GrokCLI.Services;
 
 public class ChatService : IChatService
@@ -16,6 +18,7 @@ public class ChatService : IChatService
     private readonly string? _prePrompt;
 
     public event Action<string>? OnTextReceived;
+    public event Action<string>? OnReasoningReceived;
     public event Action<ToolCallEvent>? OnToolCalled;
     public event Action<ToolResultEvent>? OnToolResult;
 
@@ -93,14 +96,20 @@ public class ChatService : IChatService
                         }
                     }
 
-                    if (update.ContentUpdate.Count > 0)
-                    {
-                        var text = update.ContentUpdate[0].Text;
-                        var processed = ProcessChunk(text, ref pendingHighSurrogate);
-                        assistantBuffer.Append(processed);
-                        OnTextReceived?.Invoke(processed);
-                    }
+                if (update.ContentUpdate.Count > 0)
+                {
+                    var text = update.ContentUpdate[0].Text;
+                    var processed = ProcessChunk(text, ref pendingHighSurrogate);
+                    assistantBuffer.Append(processed);
+                    OnTextReceived?.Invoke(processed);
                 }
+
+                var reasoning = ExtractReasoning(update.Patch);
+                if (!string.IsNullOrWhiteSpace(reasoning))
+                {
+                    OnReasoningReceived?.Invoke(reasoning);
+                }
+            }
 
                 if (pendingHighSurrogate.HasValue)
                 {
@@ -163,6 +172,53 @@ public class ChatService : IChatService
         {
             TrimConversation(conversation, conversationStartIndex);
             throw;
+        }
+
+        static string? ExtractReasoning(System.ClientModel.Primitives.JsonPatch? patch)
+        {
+            if (patch == null)
+                return null;
+
+            var json = patch.ToString();
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var builder = new StringBuilder();
+                Collect(doc.RootElement, false, builder);
+                var text = builder.ToString().Trim();
+                return string.IsNullOrWhiteSpace(text) ? null : text;
+            }
+            catch
+            {
+                return null;
+            }
+
+            static void Collect(JsonElement element, bool capture, StringBuilder builder)
+            {
+                switch (element.ValueKind)
+                {
+                    case JsonValueKind.String:
+                        if (capture)
+                            builder.AppendLine(element.GetString());
+                        break;
+                    case JsonValueKind.Array:
+                        foreach (var item in element.EnumerateArray())
+                        {
+                            Collect(item, capture, builder);
+                        }
+                        break;
+                    case JsonValueKind.Object:
+                        foreach (var prop in element.EnumerateObject())
+                        {
+                            var isReasoning = capture || prop.Name.Contains("reason", StringComparison.OrdinalIgnoreCase);
+                            Collect(prop.Value, isReasoning, builder);
+                        }
+                        break;
+                }
+            }
         }
 
         static string ProcessChunk(string chunk, ref char? pendingHighSurrogate)
