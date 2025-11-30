@@ -15,7 +15,6 @@ public class SimpleChatViewController
     private readonly SimpleTerminalUI _ui;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
-    private ChatReasoningEffortLevel _reasoningLevel = ChatReasoningEffortLevel.Low;
     private ChatTokenUsage? _lastUsage;
     private readonly Stopwatch _sessionStopwatch;
     private readonly string _version;
@@ -81,7 +80,7 @@ public class SimpleChatViewController
 
         try
         {
-            await _chatService.SendMessageAsync(userText, _conversation, _reasoningLevel, cts.Token);
+            await _chatService.SendMessageAsync(userText, _conversation, cts.Token);
             Console.WriteLine();
         }
         catch (OperationCanceledException)

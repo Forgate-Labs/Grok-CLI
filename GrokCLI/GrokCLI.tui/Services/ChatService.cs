@@ -34,7 +34,6 @@ public class ChatService : IChatService
     public async Task SendMessageAsync(
         string userMessage,
         List<ChatMessage> conversation,
-        ChatReasoningEffortLevel reasoningEffort,
         CancellationToken cancellationToken)
     {
         var conversationStartIndex = conversation.Count;
@@ -52,11 +51,6 @@ public class ChatService : IChatService
             {
                 ToolChoice = ChatToolChoice.CreateAutoChoice()
             };
-
-            if (reasoningEffort != ChatReasoningEffortLevel.Low)
-            {
-                options.ReasoningEffortLevel = reasoningEffort;
-            }
 
             foreach (var tool in _tools)
             {

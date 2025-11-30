@@ -20,7 +20,6 @@ public class TerminalGuiChatViewController : IDisposable
     private readonly IServiceProvider _services;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
-    private ChatReasoningEffortLevel _reasoningLevel = ChatReasoningEffortLevel.Low;
     private ChatTokenUsage? _lastUsage;
     private readonly string _version;
     private readonly string _configPath;
@@ -151,7 +150,7 @@ public class TerminalGuiChatViewController : IDisposable
             Y = 1,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            Title = $"Grok CLI {_version} - {(_displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal")} mode - {(_reasoningLevel == ChatReasoningEffortLevel.Low ? "Low" : "High")} - Press Esc to clear input or cancel operation",
+            Title = $"Grok CLI {_version} - {(_displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal")} mode - Press Esc to clear input or cancel operation",
         };
         _window.ColorScheme = baseScheme;
 
@@ -236,8 +235,6 @@ public class TerminalGuiChatViewController : IDisposable
 
         MenuItem? modeDebug = null;
         MenuItem? modeNormal = null;
-        MenuItem? reasoningLow = null;
-        MenuItem? reasoningHigh = null;
 
         void setModeSelection(ChatDisplayMode mode)
         {
@@ -246,20 +243,6 @@ public class TerminalGuiChatViewController : IDisposable
                 modeDebug.Checked = mode == ChatDisplayMode.Debug;
             if (modeNormal != null)
                 modeNormal.Checked = mode == ChatDisplayMode.Normal;
-        }
-
-        void setReasoning(ChatReasoningEffortLevel level)
-        {
-            _reasoningLevel = level;
-            if (reasoningLow != null)
-            {
-                reasoningLow.Checked = level == ChatReasoningEffortLevel.Low;
-            }
-
-            if (reasoningHigh != null)
-            {
-                reasoningHigh.Checked = level == ChatReasoningEffortLevel.High;
-            }
         }
 
         modeDebug = new MenuItem("Debug", "", () => setModeSelection(ChatDisplayMode.Debug))
@@ -274,35 +257,19 @@ public class TerminalGuiChatViewController : IDisposable
             CheckType = MenuItemCheckStyle.Radio
         };
 
-        reasoningLow = new MenuItem("Low", "", () => setReasoning(ChatReasoningEffortLevel.Low))
-        {
-            Checked = true,
-            CheckType = MenuItemCheckStyle.Radio
-        };
-
-        reasoningHigh = new MenuItem("High", "", () => setReasoning(ChatReasoningEffortLevel.High))
-        {
-            Checked = false,
-            CheckType = MenuItemCheckStyle.Radio
-        };
-
         var menu = new MenuBar
         {
             Menus = new[]
             {
-                new MenuBarItem("_File", new[]
+                new MenuBarItem("_Grok", new[]
                 {
+                    new MenuItem("_New", "", StartNewSession),
                     new MenuItem("_Quit", "", () => Application.RequestStop())
                 }),
                 new MenuBarItem("_Mode", new[]
                 {
                     modeDebug,
                     modeNormal
-                }),
-                new MenuBarItem("_Reasoning", new[]
-                {
-                    reasoningLow,
-                    reasoningHigh
                 })
             }
         };
@@ -392,7 +359,7 @@ public class TerminalGuiChatViewController : IDisposable
 
         try
         {
-            await _chatService.SendMessageAsync(userText, _conversation, _reasoningLevel, token);
+            await _chatService.SendMessageAsync(userText, _conversation, token);
             AppendHistory("\n");
         }
         catch (OperationCanceledException)
@@ -1108,6 +1075,28 @@ public class TerminalGuiChatViewController : IDisposable
     {
         _thinkingBlockOpen = false;
         _reasoningLines.Clear();
+    }
+
+    private void StartNewSession()
+    {
+        if (_cts != null)
+        {
+            _cts.Cancel();
+            _cts.Dispose();
+            _cts = null;
+        }
+
+        _conversation.Clear();
+        _lastUsage = null;
+        ResetReasoningBlock();
+        _sessionStopwatch.Restart();
+
+        if (_historyView != null)
+            _historyView.Text = "";
+
+        ClearPlan();
+        AppendWelcomeMessage();
+        SetStatus("Ready");
     }
 
     private void StartThinkingAnimation()
