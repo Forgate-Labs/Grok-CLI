@@ -310,7 +310,7 @@ public class SimpleChatViewController
         var code = TryGetString(toolEvent.ArgumentsJson, "code") ?? "";
         var snippet = Truncate(code.Replace("\n", " "), 80);
         var path = Directory.GetCurrentDirectory();
-        WriteSummaryHeader($"Python(path: \"{path}\", command: \"{snippet}\")");
+        WriteSummaryHeader($"Python(command: \"{snippet}\")");
 
         var message = toolEvent.Result.Success
             ? NormalizeOutput(toolEvent.Result.Output)
@@ -335,7 +335,7 @@ public class SimpleChatViewController
             ? Directory.GetCurrentDirectory()
             : workingDirectory;
         var snippet = Truncate(command.Replace("\n", " "), 80);
-        WriteSummaryHeader($"Command(path: \"{location}\", command: \"{snippet}\")");
+        WriteSummaryHeader($"Command(command: \"{snippet}\")");
 
         var successMessage = toolEvent.Result.Output;
         if (!string.IsNullOrWhiteSpace(toolEvent.Result.Error))

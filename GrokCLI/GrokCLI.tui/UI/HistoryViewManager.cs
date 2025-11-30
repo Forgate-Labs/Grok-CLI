@@ -146,6 +146,9 @@ public sealed class HistoryViewManager
 
     private void AttachBlock(HistoryBlock block)
     {
+        if (TryMergeWithPrevious(block))
+            return;
+
         block.Frame.MouseClick += _ => ShowBlockDetails(block);
         block.BodyView.MouseClick += _ => ShowBlockDetails(block);
         _historyView.Add(block.Frame);
@@ -260,7 +263,12 @@ public sealed class HistoryViewManager
             .Select(l => TrimPrefix(l, "⎿ "))
             .ToArray();
         var body = string.Join("\n", bodyLines).TrimEnd('\n');
-        return (string.IsNullOrWhiteSpace(titleLine) ? "Message" : titleLine, body);
+        var normalizedTitle = string.IsNullOrWhiteSpace(titleLine) ? "Message" : titleLine;
+        var (finalTitle, titleRemainder) = SplitTitle(normalizedTitle);
+        if (!string.IsNullOrEmpty(titleRemainder))
+            body = PrependLine(body, titleRemainder);
+
+        return (finalTitle, body);
     }
 
     private static string TrimPrefix(string value, string prefix)
@@ -268,6 +276,76 @@ public sealed class HistoryViewManager
         if (value.StartsWith(prefix, StringComparison.Ordinal))
             return value[prefix.Length..];
         return value;
+    }
+
+    private bool TryMergeWithPrevious(HistoryBlock block)
+    {
+        if (_blocks.Count == 0)
+            return false;
+
+        if (_blocks[^1] is not HistoryBlock previous)
+            return false;
+
+        if (!string.Equals(previous.Title, block.Title, StringComparison.Ordinal))
+            return false;
+
+        var combined = previous.Body;
+        var newBody = block.Body;
+        if (!string.IsNullOrEmpty(newBody))
+        {
+            if (!string.IsNullOrEmpty(combined) && !combined.EndsWith("\n"))
+                combined += "\n";
+            combined += newBody;
+            previous.SetBody(combined);
+        }
+
+        _activeBlockIndex = _blocks.Count - 1;
+        LayoutBlocks(true);
+        return true;
+    }
+
+    private static (string title, string? remainder) SplitTitle(string title)
+    {
+        var trimmed = title?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return ("Message", null);
+
+        var separatorIndex = FindFirstSeparator(trimmed);
+        if (separatorIndex < 0)
+            return (trimmed, null);
+
+        var head = trimmed[..separatorIndex];
+        var separator = trimmed[separatorIndex];
+        var rest = (separator == ' ' || separator == '\t' || separator == ':')
+            ? trimmed[(separatorIndex + 1)..]
+            : trimmed[separatorIndex..];
+        rest = rest.TrimStart(' ', '\t', ':');
+        var finalTitle = string.IsNullOrWhiteSpace(head) ? "Message" : head;
+        var remainder = string.IsNullOrWhiteSpace(rest) ? null : rest;
+        return (finalTitle, remainder);
+    }
+
+    private static int FindFirstSeparator(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsWhiteSpace(c) || c == ':' || c == '(')
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static string PrependLine(string body, string line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return body;
+
+        if (string.IsNullOrEmpty(body))
+            return line;
+
+        return $"{line}\n{body}";
     }
 }
 
@@ -354,9 +432,22 @@ internal sealed class HistoryBlock : IHistoryItem
         if (width <= 0)
             return new[] { ustring.Make(string.Empty) };
 
-        var normalized = SummaryTextFormatter.Normalize(text);
-        var u = ustring.Make(normalized);
-        return TextFormatter.WordWrap(u, width, true, 4, TextDirection.LeftRight_TopBottom);
+        var normalized = (text ?? string.Empty).ReplaceLineEndings("\n");
+        var lines = normalized.Split('\n', StringSplitOptions.None);
+        var wrapped = new List<ustring>();
+        foreach (var line in lines)
+        {
+            if (line.Length == 0)
+            {
+                wrapped.Add(ustring.Make(string.Empty));
+                continue;
+            }
+
+            var u = ustring.Make(line);
+            wrapped.AddRange(TextFormatter.WordWrap(u, width, true, 4, TextDirection.LeftRight_TopBottom));
+        }
+
+        return wrapped;
     }
 }
 

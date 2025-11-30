@@ -91,7 +91,7 @@ public sealed class ToolSummaryBuilder
         }
 
         var builder = new StringBuilder();
-        builder.Append(SummaryTextFormatter.BuildHeader($"Python(path: \"{path}\", command: \"{snippet}\")"));
+        builder.Append(SummaryTextFormatter.BuildHeader($"Python(command: \"{snippet}\")"));
         builder.Append(SummaryTextFormatter.BuildBlock(message));
         return builder.ToString();
     }
@@ -129,7 +129,7 @@ public sealed class ToolSummaryBuilder
             : SummaryTextFormatter.Normalize(failureMessage);
 
         var builder = new StringBuilder();
-        builder.Append(SummaryTextFormatter.BuildHeader($"Command(path: \"{location}\", command: \"{snippet}\")"));
+        builder.Append(SummaryTextFormatter.BuildHeader($"Command(command: \"{snippet}\")"));
         builder.Append(SummaryTextFormatter.BuildBlock(message));
         return builder.ToString();
     }
