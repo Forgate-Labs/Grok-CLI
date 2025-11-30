@@ -86,13 +86,16 @@ public sealed class TerminalGuiLayoutFactory : ITerminalGuiLayoutFactory
         };
         window.ColorScheme = baseScheme;
 
-        var historyView = new ListView
+        var historyView = new ScrollView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(reservedHeight),
-            ColorScheme = baseScheme
+            ColorScheme = baseScheme,
+            ShowVerticalScrollIndicator = true,
+            ShowHorizontalScrollIndicator = false,
+            AutoHideScrollBars = true
         };
 
         var statusLabel = new Label

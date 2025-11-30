@@ -1,59 +1,90 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.Text;
 using System.Linq;
+using System.Text;
 using Terminal.Gui;
 using NStack;
+using GuiAttribute = Terminal.Gui.Attribute;
 
 namespace GrokCLI.UI;
 
 public sealed class HistoryViewManager
 {
-    private readonly ListView _historyView;
-    private readonly HistoryListDataSource _dataSource;
+    private readonly ScrollView _historyView;
+    private readonly List<IHistoryItem> _blocks = new();
     private readonly HashSet<string> _reasoningLines = new();
-    private readonly int _previewLines;
     private int _activeBlockIndex = -1;
     private int _thinkingBlockIndex = -1;
+    private readonly ColorScheme _defaultScheme;
+    private readonly ColorScheme _userScheme;
 
-    public HistoryViewManager(ListView historyView, int previewLines = 6)
+    public HistoryViewManager(ScrollView historyView)
     {
         _historyView = historyView;
-        _previewLines = previewLines;
-        _dataSource = new HistoryListDataSource(previewLines);
-        _historyView.Source = _dataSource;
-        _historyView.AllowsMarking = false;
-        _historyView.OpenSelectedItem += OnOpenSelectedItem;
+        _historyView.ShowVerticalScrollIndicator = true;
+        _historyView.ShowHorizontalScrollIndicator = false;
+        _historyView.ContentSize = new Size(0, 0);
+        _historyView.LayoutComplete += OnLayoutComplete;
+        _defaultScheme = _historyView.ColorScheme ?? Colors.Base;
+        _userScheme = new ColorScheme
+        {
+            Normal = new GuiAttribute(Color.Black, Color.Gray),
+            Focus = new GuiAttribute(Color.Black, Color.Gray),
+            HotNormal = new GuiAttribute(Color.Black, Color.Gray),
+            HotFocus = new GuiAttribute(Color.Black, Color.Gray),
+            Disabled = new GuiAttribute(Color.Gray, Color.Black)
+        };
     }
 
-    public bool HasBlocks => _dataSource.BlockCount > 0;
+    public bool HasBlocks => _blocks.Count > 0;
 
     public void SetContent(string text)
     {
         Clear();
-        AddBlock(text);
+        AddBlockFromText(text);
     }
 
-    public void AddBlock(string text)
+    public void AddBlock(string title, string body)
     {
-        var block = new HistoryBlock(text);
-        _dataSource.AddBlock(block);
-        _activeBlockIndex = _dataSource.BlockCount - 1;
-        MoveSelectionToBlock(_activeBlockIndex);
-        _historyView.SetNeedsDisplay();
+        var block = new HistoryBlock(title, body);
+        AttachBlock(block);
+    }
+
+    public void AddBlockFromText(string text)
+    {
+        var normalized = SummaryTextFormatter.Normalize(text);
+        var lines = normalized.Split('\n');
+        var firstLine = lines.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? "";
+        if (IsWorkedLine(firstLine))
+        {
+            AddItem(new HistoryLabelItem(firstLine.Trim(), _defaultScheme, false));
+            return;
+        }
+
+        if (IsUserLine(firstLine))
+        {
+            AddItem(new HistoryLabelItem(normalized, _userScheme, false));
+            return;
+        }
+
+        var (title, body) = SplitTitleAndBody(lines, firstLine);
+        AddBlock(title, body);
     }
 
     public void Append(string text)
     {
-        if (!HasBlocks)
-            AddBlock(text);
-        else
-            AppendToBlock(_activeBlockIndex, text, true);
+        if (_activeBlockIndex < 0 || _activeBlockIndex >= _blocks.Count || !_blocks[_activeBlockIndex].AcceptsAppend)
+        {
+            AddBlockFromText(text);
+            return;
+        }
+
+        _blocks[_activeBlockIndex].Append(text);
+        LayoutBlocks(true);
     }
 
     public void AppendToNewBlock(string text)
     {
-        AddBlock(text);
+        AddBlockFromText(text);
     }
 
     public void AppendReasoning(string text)
@@ -68,9 +99,8 @@ public sealed class HistoryViewManager
 
         if (_thinkingBlockIndex < 0)
         {
-            var header = SummaryTextFormatter.BuildHeader("Thinking").TrimEnd('\n');
-            _thinkingBlockIndex = _dataSource.BlockCount;
-            _dataSource.AddBlock(new HistoryBlock(header + "\n"));
+            _thinkingBlockIndex = _blocks.Count;
+            AddBlock("Thinking", string.Empty);
         }
 
         foreach (var line in lines)
@@ -79,12 +109,10 @@ public sealed class HistoryViewManager
                 continue;
 
             _reasoningLines.Add(line);
-            var formatted = SummaryTextFormatter.BuildLine(line);
-            AppendToBlock(_thinkingBlockIndex, formatted, false);
+            _blocks[_thinkingBlockIndex].Append(SummaryTextFormatter.BuildLine(line));
         }
 
-        MoveSelectionToBlock(_thinkingBlockIndex);
-        _historyView.SetNeedsDisplay();
+        LayoutBlocks(true);
     }
 
     public void ResetReasoningBlock()
@@ -95,54 +123,65 @@ public sealed class HistoryViewManager
 
     public void Clear()
     {
-        _dataSource.Clear();
-        _historyView.SelectedItem = 0;
+        foreach (var block in _blocks)
+        {
+            _historyView.Remove(block.View);
+        }
+
+        _blocks.Clear();
         _activeBlockIndex = -1;
         _thinkingBlockIndex = -1;
         _reasoningLines.Clear();
-        _historyView.SetNeedsDisplay();
+        _historyView.ContentSize = new Size(_historyView.Bounds.Width, 0);
     }
 
-    public void MoveToLastBlock()
+    private void AttachBlock(HistoryBlock block)
     {
-        if (!HasBlocks)
-            return;
-
-        MoveSelectionToBlock(_dataSource.BlockCount - 1);
-        _historyView.SetNeedsDisplay();
+        block.Frame.MouseClick += _ => ShowBlockDetails(block);
+        _historyView.Add(block.Frame);
+        _blocks.Add(block);
+        _activeBlockIndex = _blocks.Count - 1;
+        LayoutBlocks(true);
     }
 
-    private void AppendToBlock(int blockIndex, string text, bool updateActive)
+    private void AddItem(IHistoryItem item)
     {
-        if (blockIndex < 0 || blockIndex >= _dataSource.BlockCount)
+        _historyView.Add(item.View);
+        _blocks.Add(item);
+        _activeBlockIndex = _blocks.Count - 1;
+        LayoutBlocks(true);
+    }
+
+    private void OnLayoutComplete(View.LayoutEventArgs _)
+    {
+        LayoutBlocks(false);
+    }
+
+    private void LayoutBlocks(bool scrollToEnd)
+    {
+        var width = Math.Max(1, _historyView.Frame.Width - (_historyView.ShowVerticalScrollIndicator ? 1 : 0));
+        var innerWidth = Math.Max(1, width - 2);
+        var y = 0;
+
+        foreach (var block in _blocks)
         {
-            AddBlock(text);
-            return;
+            var frameHeight = block.UpdateLayout(width, innerWidth);
+            block.View.X = 0;
+            block.View.Y = y;
+            y += frameHeight;
         }
 
-        _dataSource.AppendToBlock(blockIndex, text);
-        if (updateActive)
-            _activeBlockIndex = blockIndex;
-        MoveSelectionToBlock(blockIndex);
-        _historyView.SetNeedsDisplay();
+        _historyView.ContentSize = new Size(width, Math.Max(y, _historyView.Bounds.Height));
+
+        if (scrollToEnd)
+        {
+            var offsetY = Math.Max(0, y - _historyView.Bounds.Height);
+            _historyView.ContentOffset = new Point(0, offsetY);
+        }
     }
 
-    private void MoveSelectionToBlock(int blockIndex)
+    private void ShowBlockDetails(HistoryBlock block)
     {
-        var rowIndex = _dataSource.GetRowIndexForBlock(blockIndex);
-        if (rowIndex < 0 || rowIndex >= _dataSource.Count)
-            return;
-
-        _historyView.SelectedItem = rowIndex;
-        _historyView.EnsureSelectedItemVisible();
-    }
-
-    private void OnOpenSelectedItem(ListViewItemEventArgs args)
-    {
-        var block = _dataSource.GetBlockFromRow(args.Item);
-        if (block == null)
-            return;
-
         var width = Math.Min(Application.Driver.Cols - 4, 100);
         var height = Math.Min(Application.Driver.Rows - 4, 25);
         if (width < 40)
@@ -150,7 +189,7 @@ public sealed class HistoryViewManager
         if (height < 10)
             height = 10;
 
-        var popover = new Popover("Block Details", width, height);
+        var popover = new Popover(block.Title, width, height);
         var content = new TextView
         {
             X = 0,
@@ -159,7 +198,7 @@ public sealed class HistoryViewManager
             Height = Dim.Fill(1),
             ReadOnly = true,
             WordWrap = true,
-            Text = block.Content
+            Text = block.Body
         };
 
         var closeButton = new Button("Close")
@@ -174,220 +213,211 @@ public sealed class HistoryViewManager
         Application.Run(popover);
         _historyView.SetFocus();
     }
-}
 
-internal sealed class HistoryBlock
-{
-    private readonly StringBuilder _builder = new();
-
-    public HistoryBlock(string text)
+    public void EnsureAssistantStream()
     {
-        Append(text);
+        if (_activeBlockIndex >= 0 &&
+            _activeBlockIndex < _blocks.Count &&
+            _blocks[_activeBlockIndex] is HistoryLabelItem label &&
+            label.AcceptsAppend &&
+            label.IsAssistant)
+            return;
+
+        AddItem(new HistoryLabelItem(string.Empty, _defaultScheme, true, true));
     }
 
-    public string Content => _builder.ToString();
+    private static bool IsWorkedLine(string line)
+    {
+        var trimmed = line.TrimStart();
+        return trimmed.StartsWith("─ Worked for ", StringComparison.Ordinal);
+    }
+
+    private static bool IsUserLine(string line)
+    {
+        var trimmed = line.TrimStart();
+        return trimmed.StartsWith("[You]:", StringComparison.Ordinal);
+    }
+
+    private static (string title, string body) SplitTitleAndBody(string[] lines, string firstLine)
+    {
+        var titleLine = string.IsNullOrWhiteSpace(firstLine)
+            ? lines.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? "Message"
+            : firstLine;
+        titleLine = TrimPrefix(titleLine, "● ");
+        titleLine = TrimPrefix(titleLine, "⎿ ");
+        var bodyLines = lines.SkipWhile(l => string.IsNullOrWhiteSpace(l)).Skip(1)
+            .Select(l => TrimPrefix(l, "⎿ "))
+            .ToArray();
+        var body = string.Join("\n", bodyLines).TrimEnd('\n');
+        return (string.IsNullOrWhiteSpace(titleLine) ? "Message" : titleLine, body);
+    }
+
+    private static string TrimPrefix(string value, string prefix)
+    {
+        if (value.StartsWith(prefix, StringComparison.Ordinal))
+            return value[prefix.Length..];
+        return value;
+    }
+}
+
+internal interface IHistoryItem
+{
+    View View { get; }
+    bool AcceptsAppend { get; }
+    bool IsAssistant { get; }
+    void Append(string text);
+    int UpdateLayout(int frameWidth, int innerWidth);
+}
+
+internal sealed class HistoryBlock : IHistoryItem
+{
+    private readonly StringBuilder _bodyBuilder = new();
+
+    public HistoryBlock(string title, string body)
+    {
+        Title = string.IsNullOrWhiteSpace(title) ? "Message" : title;
+        Frame = new FrameView(Title)
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = 3,
+            CanFocus = true
+        };
+        BodyView = new Label
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = Dim.Fill(),
+            CanFocus = false,
+            TextAlignment = TextAlignment.Left
+        };
+        Frame.Add(BodyView);
+        SetBody(body);
+    }
+
+    public string Title { get; }
+    public FrameView Frame { get; }
+    public Label BodyView { get; }
+    public View View => Frame;
+    public bool AcceptsAppend => true;
+    public bool IsAssistant => false;
+    public string Body => _bodyBuilder.ToString();
 
     public void Append(string text)
     {
         if (string.IsNullOrEmpty(text))
             return;
 
-        _builder.Append(text);
+        _bodyBuilder.Append(text);
     }
 
-    public IReadOnlyList<string> GetPreviewLines(int maxLines)
+    public void SetBody(string text)
     {
-        var normalized = SummaryTextFormatter.Normalize(Content);
-        var lines = normalized.Split('\n');
-        var preview = new List<string>(maxLines);
-        for (var i = 0; i < maxLines; i++)
-        {
-            if (i < lines.Length)
-            {
-                preview.Add(lines[i]);
-            }
-            else
-            {
-                preview.Add(string.Empty);
-            }
-        }
+        _bodyBuilder.Clear();
+        if (!string.IsNullOrEmpty(text))
+            _bodyBuilder.Append(text);
+    }
 
-        if (lines.Length > maxLines)
-        {
-            var remaining = lines.Length - maxLines;
-            preview[^1] = $"{preview[^1]} ... (+{remaining} lines)";
-        }
+    public int UpdateLayout(int frameWidth, int innerWidth)
+    {
+        var body = SummaryTextFormatter.Normalize(Body);
+        var wrapped = Wrap(body, innerWidth).ToList();
+        if (wrapped.Count == 0)
+            wrapped.Add(ustring.Make(string.Empty));
 
-        return preview;
+        Frame.Width = frameWidth;
+        BodyView.Width = innerWidth;
+        BodyView.Text = string.Join("\n", wrapped.Select(u => u.ToString()));
+
+        var bodyHeight = wrapped.Count;
+        BodyView.Height = bodyHeight;
+        var frameHeight = Math.Max(3, bodyHeight + 2);
+        Frame.Height = frameHeight;
+        return frameHeight;
+    }
+
+    private static IEnumerable<ustring> Wrap(string text, int width)
+    {
+        if (width <= 0)
+            return new[] { ustring.Make(string.Empty) };
+
+        var normalized = SummaryTextFormatter.Normalize(text);
+        var u = ustring.Make(normalized);
+        return TextFormatter.WordWrap(u, width, true, 4, TextDirection.LeftRight_TopBottom);
     }
 }
 
-internal sealed class HistoryListDataSource : IListDataSource
+internal sealed class HistoryLabelItem : IHistoryItem
 {
-    private readonly List<HistoryBlock> _blocks = new();
-    private readonly int _previewLines;
-    private BitArray _marks = new(0);
-    private int _maxLength;
+    private readonly Label _label;
+    private readonly bool _acceptsAppend;
+    private readonly bool _isAssistant;
+    private readonly StringBuilder _content = new();
 
-    public HistoryListDataSource(int previewLines)
+    public HistoryLabelItem(string text, ColorScheme? scheme, bool acceptsAppend, bool isAssistant = false)
     {
-        _previewLines = previewLines;
+        _acceptsAppend = acceptsAppend;
+        _isAssistant = isAssistant;
+        _content.Append(text ?? string.Empty);
+        _label = new Label(_content.ToString())
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = 1,
+            TextAlignment = TextAlignment.Left,
+            CanFocus = true
+        };
+        if (scheme != null)
+            _label.ColorScheme = scheme;
     }
 
-    public int BlockCount => _blocks.Count;
+    public View View => _label;
+    public bool AcceptsAppend => _acceptsAppend;
+    public bool IsAssistant => _isAssistant;
 
-    public int Count => _blocks.Count * _previewLines;
-
-    public int Length => _maxLength;
-
-    public void AddBlock(HistoryBlock block)
+    public void Append(string text)
     {
-        _blocks.Add(block);
-        ResizeMarks();
-        RecalculateMaxLength();
-    }
-
-    public void AppendToBlock(int blockIndex, string text)
-    {
-        if (blockIndex < 0 || blockIndex >= _blocks.Count)
+        if (!_acceptsAppend || string.IsNullOrEmpty(text))
             return;
 
-        _blocks[blockIndex].Append(text);
-        RecalculateMaxLength();
+        _content.Append(text);
     }
 
-    public HistoryBlock? GetBlockFromRow(int row)
+    public int UpdateLayout(int frameWidth, int innerWidth)
     {
-        if (row < 0)
-            return null;
+        var wrapped = Wrap(_content.ToString(), frameWidth).ToList();
+        if (wrapped.Count == 0)
+            wrapped.Add(ustring.Make(string.Empty));
 
-        var blockIndex = row / _previewLines;
-        return blockIndex >= 0 && blockIndex < _blocks.Count ? _blocks[blockIndex] : null;
+        _label.Width = frameWidth;
+        _label.Height = wrapped.Count;
+        _label.Text = string.Join("\n", wrapped.Select(u => u.ToString()));
+        return wrapped.Count;
     }
 
-    public int GetRowIndexForBlock(int blockIndex)
+    private static IEnumerable<ustring> Wrap(string text, int width)
     {
-        if (blockIndex < 0 || blockIndex >= _blocks.Count)
-            return 0;
+        if (width <= 0)
+            return new[] { ustring.Make(string.Empty) };
 
-        return blockIndex * _previewLines;
-    }
-
-    public bool IsMarked(int item)
-    {
-        if (item < 0 || item >= _marks.Length)
-            return false;
-
-        return _marks[item];
-    }
-
-    public void SetMark(int item, bool value)
-    {
-        if (item < 0 || item >= _marks.Length)
-            return;
-
-        _marks[item] = value;
-    }
-
-    public IList ToList()
-    {
-        var rows = new List<object>(Count);
-        for (var i = 0; i < Count; i++)
+        var normalized = (text ?? string.Empty).ReplaceLineEndings("\n");
+        var lines = normalized.Split('\n', StringSplitOptions.None);
+        var wrapped = new List<ustring>();
+        foreach (var line in lines)
         {
-            rows.Add(GetPreviewLine(i));
-        }
-
-        return rows;
-    }
-
-    public void Render(ListView container, ConsoleDriver driver, bool selected, int item, int col, int line, int width, int start = 0)
-    {
-        var savedClip = container.ClipToBounds();
-        container.Move(Math.Max(col - start, 0), line);
-        var text = GetPreviewLine(item);
-        RenderLine(driver, text, width, start);
-        driver.Clip = savedClip;
-    }
-
-    public void Clear()
-    {
-        _blocks.Clear();
-        _marks = new BitArray(0);
-        _maxLength = 0;
-    }
-
-    private string GetPreviewLine(int rowIndex)
-    {
-        var blockIndex = rowIndex / _previewLines;
-        var lineIndex = rowIndex % _previewLines;
-        if (blockIndex < 0 || blockIndex >= _blocks.Count)
-            return string.Empty;
-
-        var lines = _blocks[blockIndex].GetPreviewLines(_previewLines);
-        return lineIndex >= 0 && lineIndex < lines.Count ? lines[lineIndex] : string.Empty;
-    }
-
-    private void ResizeMarks()
-    {
-        var newSize = Math.Max(0, _blocks.Count * _previewLines);
-        var updated = new BitArray(newSize);
-        var limit = Math.Min(_marks.Length, updated.Length);
-        for (var i = 0; i < limit; i++)
-        {
-            updated[i] = _marks[i];
-        }
-
-        _marks = updated;
-    }
-
-    private void RecalculateMaxLength()
-    {
-        var max = 0;
-        foreach (var block in _blocks)
-        {
-            var lines = block.GetPreviewLines(_previewLines);
-            foreach (var line in lines)
+            if (line.Length == 0)
             {
-                var width = TextFormatter.GetTextWidth(ustring.Make(line));
-                if (width > max)
-                    max = width;
+                wrapped.Add(ustring.Make(string.Empty));
+                continue;
             }
+
+            var u = ustring.Make(line);
+            wrapped.AddRange(TextFormatter.WordWrap(u, width, true, 4, TextDirection.LeftRight_TopBottom));
         }
 
-        _maxLength = max;
-    }
-
-    private static void RenderLine(ConsoleDriver driver, string text, int width, int start)
-    {
-        var u = ustring.Make(text ?? string.Empty);
-        var runes = u.ToRunes().ToList();
-        if (runes.Count == 0)
-        {
-            AddEmpty(driver, width, start);
-            return;
-        }
-
-        if (start > runes.Count - 1)
-        {
-            AddEmpty(driver, width, start);
-            return;
-        }
-
-        var clipped = TextFormatter.ClipAndJustify(u.Substring(start), width, TextAlignment.Left);
-        driver.AddStr(clipped);
-        var remaining = width - TextFormatter.GetTextWidth(clipped);
-        while (remaining-- + start > 0)
-        {
-            driver.AddRune(' ');
-        }
-    }
-
-    private static void AddEmpty(ConsoleDriver driver, int width, int start)
-    {
-        var count = width + Math.Max(start, 0);
-        for (var i = 0; i < count; i++)
-        {
-            driver.AddRune(' ');
-        }
+        return wrapped;
     }
 }

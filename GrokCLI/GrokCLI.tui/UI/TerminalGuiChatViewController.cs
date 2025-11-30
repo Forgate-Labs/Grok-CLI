@@ -506,7 +506,7 @@ public class TerminalGuiChatViewController : IDisposable
         if (_assistantBlockOpen)
             return;
 
-        _historyManager?.AppendToNewBlock(string.Empty);
+        _historyManager?.EnsureAssistantStream();
         _assistantBlockOpen = true;
     }
 
