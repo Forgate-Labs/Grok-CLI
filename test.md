@@ -1,1 +1,0 @@
-﻿# Arquivo de Teste Gerado\n\nEste é um arquivo de teste criado pelo Grok CLI.\n\n## Conteúdo de Exemplo:\n\n1. Linha 1\n2. Linha 2\n3. Linha 3\n4. Linha 4\n5. Linha 5\n6. Linha 6\n7. Linha 7\n8. Linha 8\n9. Linha 9\n10. Linha 10\n11. Linha 11\n12. Linha 12\n13. Linha 13\n14. Linha 14\n15. Linha 15\n16. Linha 16\n17. Linha 17\n18. Linha 18\n19. Linha 19\n20. Linha 20 (fim).

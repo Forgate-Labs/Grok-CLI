@@ -171,10 +171,15 @@ public sealed class ToolSummaryBuilder
         }
 
         var metadata = ParseEditMetadata(toolEvent.Result.Output);
+        var created = IsCreated(metadata);
         var count = metadata?.LinesModified ?? 0;
         var successBuilder = new StringBuilder();
-        successBuilder.Append(SummaryTextFormatter.BuildHeader($"Update({path})"));
-        successBuilder.Append(SummaryTextFormatter.BuildLine($"Update {count} lines"));
+        var headerTitle = created ? "Create" : "Update";
+        successBuilder.Append(SummaryTextFormatter.BuildHeader($"{headerTitle}({path})"));
+        if (created)
+            successBuilder.Append(SummaryTextFormatter.BuildLine("File created"));
+        else
+            successBuilder.Append(SummaryTextFormatter.BuildLine($"Update {count} lines"));
         return successBuilder.ToString();
     }
 
@@ -319,7 +324,10 @@ public sealed class ToolSummaryBuilder
                     : null,
                 LinesModified = root.TryGetProperty("lines_modified", out var linesProp)
                     ? linesProp.GetInt32()
-                    : 0
+                    : 0,
+                Message = root.TryGetProperty("message", out var messageProp)
+                    ? messageProp.GetString()
+                    : null
             };
         }
         catch
@@ -328,10 +336,20 @@ public sealed class ToolSummaryBuilder
         }
     }
 
+    private static bool IsCreated(EditResultMetadata? metadata)
+    {
+        if (metadata == null)
+            return false;
+
+        var message = metadata.Message ?? string.Empty;
+        return message.TrimStart().StartsWith("File created", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class EditResultMetadata
     {
         public string? FilePath { get; init; }
         public string? BackupPath { get; init; }
         public int LinesModified { get; init; }
+        public string? Message { get; init; }
     }
 }
