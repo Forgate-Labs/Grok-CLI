@@ -98,6 +98,7 @@ public class FileEditService : IFileEditService
     {
         try
         {
+            content = NormalizeNewLines(content);
             var resolvedPath = _workingDirService.ResolveRelativePath(filePath);
 
             if (!File.Exists(resolvedPath))
@@ -169,6 +170,7 @@ public class FileEditService : IFileEditService
     {
         try
         {
+            content = NormalizeNewLines(content);
             var resolvedPath = _workingDirService.ResolveRelativePath(filePath);
 
             if (!File.Exists(resolvedPath))
@@ -298,6 +300,7 @@ public class FileEditService : IFileEditService
     {
         try
         {
+            content = NormalizeNewLines(content);
             var resolvedPath = _workingDirService.ResolveRelativePath(filePath);
             var fileExists = File.Exists(resolvedPath);
 
@@ -388,5 +391,15 @@ public class FileEditService : IFileEditService
         }
 
         return count;
+    }
+
+    private static string NormalizeNewLines(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return value;
+
+        var normalized = value.Replace("\\r\\n", "\n").Replace("\\n", "\n");
+        normalized = normalized.Replace("\r\n", "\n");
+        return normalized;
     }
 }
