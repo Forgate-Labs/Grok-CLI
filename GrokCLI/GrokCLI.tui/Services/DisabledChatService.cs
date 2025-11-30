@@ -7,10 +7,11 @@ public class DisabledChatService : IChatService
 {
     public event Action<string>? OnTextReceived = delegate { };
     public event Action<string>? OnReasoningReceived = delegate { };
+    public event Action<ChatTokenUsage>? OnUsageReceived = delegate { };
     public event Action<ToolCallEvent>? OnToolCalled = delegate { };
     public event Action<ToolResultEvent>? OnToolResult = delegate { };
 
-    public Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, CancellationToken cancellationToken)
+    public Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, ChatReasoningEffortLevel reasoningEffort, CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }

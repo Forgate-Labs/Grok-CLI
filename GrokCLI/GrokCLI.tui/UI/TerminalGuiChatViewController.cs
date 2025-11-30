@@ -20,6 +20,8 @@ public class TerminalGuiChatViewController : IDisposable
     private readonly IServiceProvider _services;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
+    private ChatReasoningEffortLevel _reasoningLevel = ChatReasoningEffortLevel.Low;
+    private ChatTokenUsage? _lastUsage;
     private readonly string _version;
     private readonly string _configPath;
     private readonly Stopwatch _sessionStopwatch;
@@ -42,6 +44,10 @@ public class TerminalGuiChatViewController : IDisposable
     private FrameView? _planFrame;
     private Label? _planTitleLabel;
     private TextView? _planItemsView;
+    private bool _thinkingBlockOpen;
+    private readonly HashSet<string> _reasoningLines = new();
+    private CancellationTokenSource? _thinkingAnimationCts;
+    private int _thinkingDotCount;
     private CancellationTokenSource? _cts;
 
     public TerminalGuiChatViewController(
@@ -63,6 +69,7 @@ public class TerminalGuiChatViewController : IDisposable
 
         _chatService.OnTextReceived += OnTextReceived;
         _chatService.OnReasoningReceived += OnReasoningReceived;
+        _chatService.OnUsageReceived += OnUsageReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
     }
@@ -83,6 +90,7 @@ public class TerminalGuiChatViewController : IDisposable
     {
         _chatService.OnTextReceived -= OnTextReceived;
         _chatService.OnReasoningReceived -= OnReasoningReceived;
+        _chatService.OnUsageReceived -= OnUsageReceived;
         _chatService.OnToolCalled -= OnToolCalled;
         _chatService.OnToolResult -= OnToolResult;
         if (_cts != null)
@@ -143,7 +151,7 @@ public class TerminalGuiChatViewController : IDisposable
             Y = 1,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            Title = $"Grok CLI {_version} - {(_displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal")}"
+            Title = $"Grok CLI {_version} - {(_displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal")} mode - {(_reasoningLevel == ChatReasoningEffortLevel.Low ? "Low" : "High")} - Press Esc to clear input or cancel operation",
         };
         _window.ColorScheme = baseScheme;
 
@@ -226,6 +234,58 @@ public class TerminalGuiChatViewController : IDisposable
 
         _inputView.KeyDown += InputViewOnKeyDown;
 
+        MenuItem? modeDebug = null;
+        MenuItem? modeNormal = null;
+        MenuItem? reasoningLow = null;
+        MenuItem? reasoningHigh = null;
+
+        void setModeSelection(ChatDisplayMode mode)
+        {
+            SetMode(mode);
+            if (modeDebug != null)
+                modeDebug.Checked = mode == ChatDisplayMode.Debug;
+            if (modeNormal != null)
+                modeNormal.Checked = mode == ChatDisplayMode.Normal;
+        }
+
+        void setReasoning(ChatReasoningEffortLevel level)
+        {
+            _reasoningLevel = level;
+            if (reasoningLow != null)
+            {
+                reasoningLow.Checked = level == ChatReasoningEffortLevel.Low;
+            }
+
+            if (reasoningHigh != null)
+            {
+                reasoningHigh.Checked = level == ChatReasoningEffortLevel.High;
+            }
+        }
+
+        modeDebug = new MenuItem("Debug", "", () => setModeSelection(ChatDisplayMode.Debug))
+        {
+            Checked = _displayMode == ChatDisplayMode.Debug,
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        modeNormal = new MenuItem("Normal", "", () => setModeSelection(ChatDisplayMode.Normal))
+        {
+            Checked = _displayMode == ChatDisplayMode.Normal,
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        reasoningLow = new MenuItem("Low", "", () => setReasoning(ChatReasoningEffortLevel.Low))
+        {
+            Checked = true,
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        reasoningHigh = new MenuItem("High", "", () => setReasoning(ChatReasoningEffortLevel.High))
+        {
+            Checked = false,
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
         var menu = new MenuBar
         {
             Menus = new[]
@@ -236,14 +296,20 @@ public class TerminalGuiChatViewController : IDisposable
                 }),
                 new MenuBarItem("_Mode", new[]
                 {
-                    new MenuItem("Debug", "", () => SetMode(ChatDisplayMode.Debug)),
-                    new MenuItem("Normal", "", () => SetMode(ChatDisplayMode.Normal))
+                    modeDebug,
+                    modeNormal
+                }),
+                new MenuBarItem("_Reasoning", new[]
+                {
+                    reasoningLow,
+                    reasoningHigh
                 })
             }
         };
 
         _window!.Add(_historyView, _statusLabel, _planFrame, _inputView);
         _top!.Add(menu, _window);
+        setModeSelection(_displayMode);
         Application.MainLoop?.AddIdle(() =>
         {
             if (_welcomeShown)
@@ -316,6 +382,9 @@ public class TerminalGuiChatViewController : IDisposable
             return;
         }
 
+        _lastUsage = null;
+        ResetReasoningBlock();
+        StartThinkingAnimation();
         AppendHistory($"\n[You]: {userText}\n");
         SetStatus("thinking...");
 
@@ -323,7 +392,7 @@ public class TerminalGuiChatViewController : IDisposable
 
         try
         {
-            await _chatService.SendMessageAsync(userText, _conversation, token);
+            await _chatService.SendMessageAsync(userText, _conversation, _reasoningLevel, token);
             AppendHistory("\n");
         }
         catch (OperationCanceledException)
@@ -341,6 +410,7 @@ public class TerminalGuiChatViewController : IDisposable
                 _cts.Dispose();
                 _cts = null;
             }
+            StopThinkingAnimation();
             SetStatus("Ready");
         }
     }
@@ -352,6 +422,7 @@ public class TerminalGuiChatViewController : IDisposable
         {
             if (_historyView != null)
                 _historyView.Text = "";
+            ResetReasoningBlock();
             ClearPlan();
             return true;
         }
@@ -429,9 +500,17 @@ public class TerminalGuiChatViewController : IDisposable
         EnqueueUi(() => AppendReasoning(text));
     }
 
+    private void OnUsageReceived(ChatTokenUsage usage)
+    {
+        _lastUsage = usage;
+    }
+
     private void OnToolCalled(ToolCallEvent toolEvent)
     {
         if (_displayMode == ChatDisplayMode.Normal)
+            return;
+
+        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
             return;
 
         EnqueueUi(() =>
@@ -452,6 +531,14 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void OnToolResult(ToolResultEvent toolEvent)
     {
+        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = GetReasoningText(toolEvent);
+            if (!string.IsNullOrWhiteSpace(text))
+                EnqueueUi(() => AppendReasoning(text));
+            return;
+        }
+
         if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
         {
             HandlePlan(toolEvent);
@@ -462,9 +549,15 @@ public class TerminalGuiChatViewController : IDisposable
 
         if (string.Equals(toolEvent.ToolName, "workflow_done", StringComparison.OrdinalIgnoreCase))
         {
-            EnqueueUi(ClearPlan);
-            if (_displayMode == ChatDisplayMode.Normal)
-                return;
+            StopThinkingAnimation();
+            SetStatus("Ready");
+            EnqueueUi(() =>
+            {
+                AppendHistory(BuildDoneSummary());
+                ClearPlan();
+                _sessionStopwatch.Restart();
+            });
+            return;
         }
 
         EnqueueUi(() =>
@@ -593,11 +686,7 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void SetStatus(string text)
     {
-        EnqueueUi(() =>
-        {
-            if (_statusLabel != null)
-                _statusLabel.Text = text;
-        });
+        EnqueueUi(() => SetStatusText(text));
     }
 
     private void SetMode(ChatDisplayMode mode)
@@ -630,7 +719,24 @@ public class TerminalGuiChatViewController : IDisposable
         if (string.IsNullOrWhiteSpace(normalized))
             return;
 
-        AppendHistory(BuildSummaryBlockText(normalized, Color.Gray));
+        var lines = normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+            return;
+
+        if (!_thinkingBlockOpen)
+        {
+            AppendHistory("\n● Thinking\n");
+            _thinkingBlockOpen = true;
+        }
+
+        foreach (var line in lines)
+        {
+            if (_reasoningLines.Contains(line))
+                continue;
+
+            _reasoningLines.Add(line);
+            AppendHistory(BuildSummaryLineText(line, Color.Gray));
+        }
     }
 
     private void EnqueueUi(Action action)
@@ -686,7 +792,6 @@ public class TerminalGuiChatViewController : IDisposable
             "edit_file" => BuildEditSummary(toolEvent),
             "change_directory" => BuildChangeDirectorySummary(toolEvent),
             "web_search" => BuildWebSearchSummary(toolEvent),
-            "test" => BuildTestSummary(toolEvent),
             "workflow_done" => BuildDoneSummary(),
             _ => BuildGenericSummary(toolEvent)
         };
@@ -857,24 +962,12 @@ public class TerminalGuiChatViewController : IDisposable
         return builder.ToString();
     }
 
-    private string BuildTestSummary(ToolResultEvent toolEvent)
-    {
-        var message = toolEvent.Result.Success
-            ? toolEvent.Result.Output
-            : string.IsNullOrWhiteSpace(toolEvent.Result.Error)
-                ? "Test failed"
-                : toolEvent.Result.Error;
-        message = NormalizeOutput(message);
-        var builder = new StringBuilder();
-        builder.Append(BuildSummaryHeaderText("Test()"));
-        builder.Append(BuildSummaryBlockText(message));
-        return builder.ToString();
-    }
-
     private string BuildDoneSummary()
     {
         var durationText = GetDurationText();
-        return $"\n{BuildDoneLine(durationText)}\n";
+        var totalTokens = _lastUsage?.TotalTokenCount ?? 0;
+        var reasoningTokens = _lastUsage?.OutputTokenDetails?.ReasoningTokenCount ?? 0;
+        return $"\n{BuildDoneLine(durationText, totalTokens, reasoningTokens)}\n";
     }
 
     private string BuildGenericSummary(ToolResultEvent toolEvent)
@@ -896,6 +989,12 @@ public class TerminalGuiChatViewController : IDisposable
     private static string NormalizeOutput(string text)
     {
         return text.ReplaceLineEndings("\n").TrimEnd('\n');
+    }
+
+    private void SetStatusText(string text)
+    {
+        if (_statusLabel != null)
+            _statusLabel.Text = text;
     }
 
     private static string Truncate(string value, int maxLength)
@@ -964,6 +1063,16 @@ public class TerminalGuiChatViewController : IDisposable
         return null;
     }
 
+    private string? GetReasoningText(ToolResultEvent toolEvent)
+    {
+        var output = NormalizeOutput(toolEvent.Result.Output ?? "");
+        if (!string.IsNullOrWhiteSpace(output))
+            return output;
+
+        var text = TryGetString(toolEvent.ArgumentsJson, "text");
+        return string.IsNullOrWhiteSpace(text) ? null : NormalizeOutput(text);
+    }
+
     private static EditResultMetadata? ParseEditMetadata(string output)
     {
         try
@@ -993,6 +1102,54 @@ public class TerminalGuiChatViewController : IDisposable
     private string GetDurationText()
     {
         return FormatDuration((int)Math.Max(0, _sessionStopwatch.Elapsed.TotalSeconds));
+    }
+
+    private void ResetReasoningBlock()
+    {
+        _thinkingBlockOpen = false;
+        _reasoningLines.Clear();
+    }
+
+    private void StartThinkingAnimation()
+    {
+        StopThinkingAnimation();
+        _sessionStopwatch.Restart();
+        _thinkingAnimationCts = new CancellationTokenSource();
+        _thinkingDotCount = 0;
+        var token = _thinkingAnimationCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                var dots = new string('.', (_thinkingDotCount % 3) + 1);
+                _thinkingDotCount++;
+                var elapsed = _sessionStopwatch.Elapsed;
+                var text = $"Thinking{dots} ({FormatDuration((int)Math.Max(0, elapsed.TotalSeconds))} - esc to interrupt)";
+
+                EnqueueUi(() => SetStatusText(text));
+
+                try
+                {
+                    await Task.Delay(500, token);
+                }
+                catch (TaskCanceledException)
+                {
+                }
+            }
+        });
+    }
+
+    private void StopThinkingAnimation()
+    {
+        if (_thinkingAnimationCts != null)
+        {
+            _thinkingAnimationCts.Cancel();
+            _thinkingAnimationCts.Dispose();
+            _thinkingAnimationCts = null;
+        }
+
+        _thinkingDotCount = 0;
     }
 
     private static string FormatDuration(int seconds)
@@ -1039,9 +1196,9 @@ public class TerminalGuiChatViewController : IDisposable
         };
     }
 
-    private string BuildDoneLine(string durationText)
+    private string BuildDoneLine(string durationText, int totalTokens, int reasoningTokens)
     {
-        var prefix = $"─ Worked for {durationText} ";
+        var prefix = $"─ Worked for {durationText} - {totalTokens} total tokens - {reasoningTokens} reasoning tokens ";
         var width = _window?.Frame.Width ?? 80;
         var remaining = Math.Max(0, width - prefix.Length);
         return prefix + new string('─', remaining);

@@ -19,6 +19,7 @@ public class ChatService : IChatService
 
     public event Action<string>? OnTextReceived;
     public event Action<string>? OnReasoningReceived;
+    public event Action<ChatTokenUsage>? OnUsageReceived;
     public event Action<ToolCallEvent>? OnToolCalled;
     public event Action<ToolResultEvent>? OnToolResult;
 
@@ -33,6 +34,7 @@ public class ChatService : IChatService
     public async Task SendMessageAsync(
         string userMessage,
         List<ChatMessage> conversation,
+        ChatReasoningEffortLevel reasoningEffort,
         CancellationToken cancellationToken)
     {
         var conversationStartIndex = conversation.Count;
@@ -50,6 +52,11 @@ public class ChatService : IChatService
             {
                 ToolChoice = ChatToolChoice.CreateAutoChoice()
             };
+
+            if (reasoningEffort != ChatReasoningEffortLevel.Low)
+            {
+                options.ReasoningEffortLevel = reasoningEffort;
+            }
 
             foreach (var tool in _tools)
             {
@@ -69,6 +76,11 @@ public class ChatService : IChatService
 
                 await foreach (var update in completionUpdates.WithCancellation(cancellationToken))
                 {
+                    if (update.Usage != null)
+                    {
+                        OnUsageReceived?.Invoke(update.Usage);
+                    }
+
                     if (update.ToolCallUpdates != null && update.ToolCallUpdates.Count > 0)
                     {
                         foreach (var toolUpdate in update.ToolCallUpdates)

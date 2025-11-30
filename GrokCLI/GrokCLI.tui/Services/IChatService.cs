@@ -8,8 +8,9 @@ public interface IChatService
 {
     event Action<string>? OnTextReceived;
     event Action<string>? OnReasoningReceived;
+    event Action<ChatTokenUsage>? OnUsageReceived;
     event Action<ToolCallEvent>? OnToolCalled;
     event Action<ToolResultEvent>? OnToolResult;
 
-    Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, CancellationToken cancellationToken);
+    Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, ChatReasoningEffortLevel reasoningEffort, CancellationToken cancellationToken);
 }

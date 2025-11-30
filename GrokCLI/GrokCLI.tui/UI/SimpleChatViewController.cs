@@ -15,9 +15,13 @@ public class SimpleChatViewController
     private readonly SimpleTerminalUI _ui;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
+    private ChatReasoningEffortLevel _reasoningLevel = ChatReasoningEffortLevel.Low;
+    private ChatTokenUsage? _lastUsage;
     private readonly Stopwatch _sessionStopwatch;
     private readonly string _version;
     private readonly string _configPath;
+    private bool _thinkingBlockOpen;
+    private readonly HashSet<string> _reasoningLines = new();
     private CancellationTokenSource? _cancellationTokenSource;
     private bool _isProcessing;
 
@@ -39,6 +43,8 @@ public class SimpleChatViewController
         _configPath = configPath;
 
         _chatService.OnTextReceived += OnTextReceived;
+        _chatService.OnReasoningReceived += OnReasoningReceived;
+        _chatService.OnUsageReceived += OnUsageReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
     }
@@ -62,6 +68,9 @@ public class SimpleChatViewController
         _cancellationTokenSource = cts;
         _isProcessing = true;
 
+        _lastUsage = null;
+        _sessionStopwatch.Restart();
+        ResetReasoningBlock();
         _ui.HideInputLine();
 
         _ui.ShowUserPrompt(userText);
@@ -72,7 +81,7 @@ public class SimpleChatViewController
 
         try
         {
-            await _chatService.SendMessageAsync(userText, _conversation, cts.Token);
+            await _chatService.SendMessageAsync(userText, _conversation, _reasoningLevel, cts.Token);
             Console.WriteLine();
         }
         catch (OperationCanceledException)
@@ -98,6 +107,8 @@ public class SimpleChatViewController
         if (!_isEnabled) return;
         Console.Clear();
         _conversation.Clear();
+        _lastUsage = null;
+        ResetReasoningBlock();
         ShowWelcomeMessage();
     }
 
@@ -128,12 +139,25 @@ public class SimpleChatViewController
         Console.Write(text);
     }
 
+    private void OnReasoningReceived(string text)
+    {
+        AppendReasoning(text);
+    }
+
+    private void OnUsageReceived(ChatTokenUsage usage)
+    {
+        _lastUsage = usage;
+    }
+
     private void OnToolCalled(ToolCallEvent toolEvent)
     {
         if (_displayMode != ChatDisplayMode.Debug)
             return;
 
         if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
             return;
 
         if (string.IsNullOrEmpty(toolEvent.ArgumentsJson))
@@ -149,6 +173,14 @@ public class SimpleChatViewController
 
     private void OnToolResult(ToolResultEvent toolEvent)
     {
+        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = GetReasoningText(toolEvent);
+            if (!string.IsNullOrWhiteSpace(text))
+                AppendReasoning(text);
+            return;
+        }
+
         if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
         {
             HandlePlanTool(toolEvent);
@@ -170,6 +202,33 @@ public class SimpleChatViewController
         }
 
         Console.WriteLine();
+    }
+
+    private void AppendReasoning(string text)
+    {
+        var normalized = NormalizeOutput(text);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        var lines = normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length == 0)
+            return;
+
+        if (!_thinkingBlockOpen)
+        {
+            Console.WriteLine();
+            WriteSummaryHeader("Thinking");
+            _thinkingBlockOpen = true;
+        }
+
+        foreach (var line in lines)
+        {
+            if (_reasoningLines.Contains(line))
+                continue;
+
+            _reasoningLines.Add(line);
+            WriteSummaryLine(line, ConsoleColor.Gray);
+        }
     }
 
     private void RenderDebugToolResult(ToolResultEvent toolEvent)
@@ -216,9 +275,6 @@ public class SimpleChatViewController
                 break;
             case "web_search":
                 RenderWebSearchSummary(toolEvent);
-                break;
-            case "test":
-                RenderTestSummary(toolEvent);
                 break;
             case "workflow_done":
                 RenderDoneSummary(toolEvent);
@@ -375,7 +431,9 @@ public class SimpleChatViewController
     private void RenderDoneSummary(ToolResultEvent toolEvent)
     {
         var durationText = GetDurationText();
-        WriteDoneLine(durationText);
+        var totalTokens = _lastUsage?.TotalTokenCount ?? 0;
+        var reasoningTokens = _lastUsage?.OutputTokenDetails?.ReasoningTokenCount ?? 0;
+        WriteDoneLine(durationText, totalTokens, reasoningTokens);
         _sessionStopwatch.Restart();
     }
 
@@ -407,18 +465,6 @@ public class SimpleChatViewController
             ? "Web search is not available"
             : toolEvent.Result.Error;
         WriteSummaryLine(message, ConsoleColor.Red);
-    }
-
-    private void RenderTestSummary(ToolResultEvent toolEvent)
-    {
-        WriteSummaryHeader("Test()");
-        var color = toolEvent.Result.Success ? ConsoleColor.Green : ConsoleColor.Red;
-        var message = toolEvent.Result.Success
-            ? toolEvent.Result.Output
-            : string.IsNullOrWhiteSpace(toolEvent.Result.Error)
-                ? "Test failed"
-                : toolEvent.Result.Error;
-        WriteSummaryBlock(message, color);
     }
 
     private void RenderGenericSummary(ToolResultEvent toolEvent)
@@ -618,6 +664,16 @@ public class SimpleChatViewController
         return null;
     }
 
+    private string? GetReasoningText(ToolResultEvent toolEvent)
+    {
+        var output = NormalizeOutput(toolEvent.Result.Output);
+        if (!string.IsNullOrWhiteSpace(output))
+            return output;
+
+        var text = TryGetString(toolEvent.ArgumentsJson, "text");
+        return string.IsNullOrWhiteSpace(text) ? null : NormalizeOutput(text);
+    }
+
     private string Truncate(string value, int maxLength)
     {
         if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
@@ -781,6 +837,12 @@ public class SimpleChatViewController
         };
     }
 
+    private void ResetReasoningBlock()
+    {
+        _thinkingBlockOpen = false;
+        _reasoningLines.Clear();
+    }
+
     private string GetDurationText()
     {
         var duration = _sessionStopwatch.Elapsed;
@@ -794,9 +856,9 @@ public class SimpleChatViewController
         return $"{minutes:00}m {remainingSeconds:00}s";
     }
 
-    private void WriteDoneLine(string durationText)
+    private void WriteDoneLine(string durationText, int totalTokens, int reasoningTokens)
     {
-        var prefix = $"─ Worked for {durationText} ";
+        var prefix = $"─ Worked for {durationText} - {totalTokens} total tokens - {reasoningTokens} reasoning tokens ";
         var width = Console.WindowWidth > 0 ? Console.WindowWidth : 80;
         var remaining = Math.Max(0, width - prefix.Length);
         var line = prefix + new string('─', remaining);

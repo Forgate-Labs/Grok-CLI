@@ -12,6 +12,7 @@
     <Authors>GrokCLI</Authors>
     <Description>Terminal chat client for Grok with agentic tool support.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
