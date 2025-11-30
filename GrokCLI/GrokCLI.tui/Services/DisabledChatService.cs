@@ -15,4 +15,8 @@ public class DisabledChatService : IChatService
     {
         return Task.CompletedTask;
     }
+
+    public void SetModel(string model)
+    {
+    }
 }

@@ -290,6 +290,11 @@ public class ChatService : IChatService
         }
     }
 
+    public void SetModel(string model)
+    {
+        _grokClient.SetModel(model);
+    }
+
     private static void TrimConversation(List<ChatMessage> conversation, int startIndex)
     {
         if (startIndex < 0)

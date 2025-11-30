@@ -9,4 +9,6 @@ public interface IGrokClient
         IEnumerable<ChatMessage> messages,
         ChatCompletionOptions options,
         CancellationToken cancellationToken = default);
+
+    void SetModel(string model);
 }

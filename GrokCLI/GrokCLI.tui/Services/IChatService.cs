@@ -13,4 +13,5 @@ public interface IChatService
     event Action<ToolResultEvent>? OnToolResult;
 
     Task SendMessageAsync(string userMessage, List<ChatMessage> conversation, CancellationToken cancellationToken);
+    void SetModel(string model);
 }

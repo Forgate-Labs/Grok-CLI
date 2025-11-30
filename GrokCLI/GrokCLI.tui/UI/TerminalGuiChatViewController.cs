@@ -20,13 +20,15 @@ public class TerminalGuiChatViewController : IDisposable
     private readonly IServiceProvider _services;
     private readonly bool _isEnabled;
     private ChatDisplayMode _displayMode;
+    private string _model = "grok-4-1-fast-reasoning";
     private ChatTokenUsage? _lastUsage;
     private readonly string _version;
     private readonly string _configPath;
     private readonly Stopwatch _sessionStopwatch;
     private const int PlanExpandedHeight = 7;
     private const int PlanCollapsedHeight = 0;
-    private const int InputHeight = 2;
+    private const int InputHeight = 5;
+    private const int InputFrameBorder = 2;
     private const int StatusHeight = 1;
     private sealed class EditResultMetadata
     {
@@ -38,6 +40,8 @@ public class TerminalGuiChatViewController : IDisposable
     private Toplevel? _top;
     private Window? _window;
     private TextView? _historyView;
+    private ScrollBarView? _historyScrollBar;
+    private FrameView? _inputFrame;
     private TextField? _inputView;
     private Label? _statusLabel;
     private FrameView? _planFrame;
@@ -103,7 +107,8 @@ public class TerminalGuiChatViewController : IDisposable
     private void BuildUI()
     {
         var planHeight = PlanCollapsedHeight;
-        var reservedHeight = planHeight + InputHeight + StatusHeight;
+        var inputFrameHeight = InputHeight + InputFrameBorder;
+        var reservedHeight = CalculateReservedHeight(planHeight);
 
         var baseNormal = new GuiAttribute(Color.White, Color.Black);
         var baseFocus = new GuiAttribute(Color.BrightYellow, Color.Black);
@@ -150,7 +155,7 @@ public class TerminalGuiChatViewController : IDisposable
             Y = 1,
             Width = Dim.Fill(),
             Height = Dim.Fill(),
-            Title = $"Grok CLI {_version} - {(_displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal")} mode - Press Esc to clear input or cancel operation",
+            Title = BuildWindowTitle(),
         };
         _window.ColorScheme = baseScheme;
 
@@ -212,16 +217,27 @@ public class TerminalGuiChatViewController : IDisposable
 
         _planFrame.Add(_planTitleLabel, _planItemsView);
 
-        _inputView = new TextField
+        _inputFrame = new FrameView
         {
             X = 0,
             Y = Pos.Bottom(_planFrame),
+            Width = Dim.Fill(),
+            Height = inputFrameHeight,
+            Title = "Input - Press Esc to clear input or cancel operation",
+            CanFocus = false,
+            ColorScheme = baseScheme
+        };
+
+        _inputView = new TextField
+        {
+            X = 0,
+            Y = 0,
             Width = Dim.Fill(),
             Height = InputHeight,
             CanFocus = true,
             ReadOnly = false
         };
-        var inputColors = new GuiAttribute(Color.White, Color.Green);
+        var inputColors = new GuiAttribute(Color.Black, Color.Gray);
         _inputView.ColorScheme = new ColorScheme
         {
             Normal = inputColors,
@@ -232,9 +248,13 @@ public class TerminalGuiChatViewController : IDisposable
         };
 
         _inputView.KeyDown += InputViewOnKeyDown;
+        _inputFrame.Add(_inputView);
 
         MenuItem? modeDebug = null;
         MenuItem? modeNormal = null;
+        MenuItem? modelReasoning = null;
+        MenuItem? modelNonReasoning = null;
+        MenuItem? modelCodeFast = null;
 
         void setModeSelection(ChatDisplayMode mode)
         {
@@ -243,6 +263,17 @@ public class TerminalGuiChatViewController : IDisposable
                 modeDebug.Checked = mode == ChatDisplayMode.Debug;
             if (modeNormal != null)
                 modeNormal.Checked = mode == ChatDisplayMode.Normal;
+        }
+
+        void setModelSelection(string model)
+        {
+            SetModel(model);
+            if (modelReasoning != null)
+                modelReasoning.Checked = model == "grok-4-1-fast-reasoning";
+            if (modelNonReasoning != null)
+                modelNonReasoning.Checked = model == "grok-4-1-fast-non-reasoning";
+            if (modelCodeFast != null)
+                modelCodeFast.Checked = model == "grok-code-fast-1";
         }
 
         modeDebug = new MenuItem("Debug", "", () => setModeSelection(ChatDisplayMode.Debug))
@@ -254,6 +285,24 @@ public class TerminalGuiChatViewController : IDisposable
         modeNormal = new MenuItem("Normal", "", () => setModeSelection(ChatDisplayMode.Normal))
         {
             Checked = _displayMode == ChatDisplayMode.Normal,
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        modelReasoning = new MenuItem("grok-4-1-fast-reasoning", "", () => setModelSelection("grok-4-1-fast-reasoning"))
+        {
+            Checked = _model == "grok-4-1-fast-reasoning",
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        modelNonReasoning = new MenuItem("grok-4-1-fast-non-reasoning", "", () => setModelSelection("grok-4-1-fast-non-reasoning"))
+        {
+            Checked = _model == "grok-4-1-fast-non-reasoning",
+            CheckType = MenuItemCheckStyle.Radio
+        };
+
+        modelCodeFast = new MenuItem("grok-code-fast-1", "", () => setModelSelection("grok-code-fast-1"))
+        {
+            Checked = _model == "grok-code-fast-1",
             CheckType = MenuItemCheckStyle.Radio
         };
 
@@ -270,13 +319,21 @@ public class TerminalGuiChatViewController : IDisposable
                 {
                     modeDebug,
                     modeNormal
+                }),
+                new MenuBarItem("_Models", new[]
+                {
+                    modelReasoning,
+                    modelNonReasoning,
+                    modelCodeFast
                 })
             }
         };
 
-        _window!.Add(_historyView, _statusLabel, _planFrame, _inputView);
+        _window!.Add(_historyView, _statusLabel, _planFrame, _inputFrame);
+        ConfigureHistoryScrollBar();
         _top!.Add(menu, _window);
         setModeSelection(_displayMode);
+        setModelSelection(_model);
         Application.MainLoop?.AddIdle(() =>
         {
             if (_welcomeShown)
@@ -288,6 +345,51 @@ public class TerminalGuiChatViewController : IDisposable
         _inputView.SetFocus();
     }
 
+    private void ConfigureHistoryScrollBar()
+    {
+        if (_historyView == null)
+            return;
+
+        _historyScrollBar = new ScrollBarView(_historyView, true, false);
+        _historyScrollBar.ChangedPosition += OnHistoryScrollBarChanged;
+        _historyScrollBar.VisibleChanged += OnHistoryScrollBarVisibilityChanged;
+        _historyView.DrawContent += OnHistoryViewDrawContent;
+    }
+
+    private void OnHistoryScrollBarChanged()
+    {
+        if (_historyView == null || _historyScrollBar == null)
+            return;
+
+        _historyView.TopRow = _historyScrollBar.Position;
+        if (_historyScrollBar.Position != _historyView.TopRow)
+            _historyScrollBar.Position = _historyView.TopRow;
+        _historyView.SetNeedsDisplay();
+    }
+
+    private void OnHistoryScrollBarVisibilityChanged()
+    {
+        if (_historyView == null || _historyScrollBar == null)
+            return;
+
+        _historyView.RightOffset = _historyScrollBar.Visible ? 1 : 0;
+    }
+
+    private void OnHistoryViewDrawContent(Rect _)
+    {
+        if (_historyView == null || _historyScrollBar == null)
+            return;
+
+        _historyScrollBar.Size = _historyView.Lines;
+        _historyScrollBar.Position = _historyView.TopRow;
+        _historyScrollBar.Refresh();
+    }
+
+    private int CalculateReservedHeight(int planHeight)
+    {
+        return planHeight + InputHeight + InputFrameBorder + StatusHeight;
+    }
+
     private void AppendWelcomeMessage()
     {
         if (_historyView == null)
@@ -296,7 +398,7 @@ public class TerminalGuiChatViewController : IDisposable
         var builder = new StringBuilder();
         builder.AppendLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
         builder.AppendLine($"Config: {_configPath}");
-        builder.AppendLine("Model: grok-4-1-fast-reasoning");
+        builder.AppendLine($"Model: {_model}");
         builder.AppendLine();
 
         _historyView.Text = builder.ToString();
@@ -656,13 +758,31 @@ public class TerminalGuiChatViewController : IDisposable
         EnqueueUi(() => SetStatusText(text));
     }
 
+    private string BuildWindowTitle()
+    {
+        var modeLabel = _displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal";
+        return $"Grok CLI {_version} - {modeLabel} mode";
+    }
+
+    private void SetModel(string model)
+    {
+        if (string.Equals(_model, model, StringComparison.Ordinal))
+            return;
+
+        _chatService.SetModel(model);
+        _model = model;
+        AppendHistory($"\n[model] Switched to {model}\n");
+    }
+
     private void SetMode(ChatDisplayMode mode)
     {
         if (_window == null)
             return;
 
+        var modeLabel = mode == ChatDisplayMode.Debug ? "Debug" : "Normal";
         _displayMode = mode;
-        _window.Title = $"Grok CLI {_version} - {(mode == ChatDisplayMode.Debug ? "Debug" : "Normal")}";
+        _window.Title = BuildWindowTitle();
+        AppendHistory($"\n[mode] Switched to {modeLabel} mode\n");
     }
 
     private void AppendHistory(string text)
@@ -724,7 +844,7 @@ public class TerminalGuiChatViewController : IDisposable
             return;
 
         var planHeight = visible ? PlanExpandedHeight : PlanCollapsedHeight;
-        var reservedHeight = planHeight + InputHeight + StatusHeight;
+        var reservedHeight = CalculateReservedHeight(planHeight);
 
         _planFrame.Visible = visible;
         _planFrame.Height = planHeight;
