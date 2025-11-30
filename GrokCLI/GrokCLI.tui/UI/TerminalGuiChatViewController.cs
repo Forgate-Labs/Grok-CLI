@@ -35,6 +35,7 @@ public class TerminalGuiChatViewController : IDisposable
     private HistoryViewManager? _historyManager;
     private PlanPresenter? _planPresenter;
     private ThinkingStatusPresenter? _statusPresenter;
+    private bool _assistantBlockOpen;
     private const int PlanExpandedHeight = 7;
     private const int PlanCollapsedHeight = 0;
     private const int InputHeight = 5;
@@ -241,8 +242,9 @@ public class TerminalGuiChatViewController : IDisposable
 
         _lastUsage = null;
         _historyManager?.ResetReasoningBlock();
+        _assistantBlockOpen = false;
         StartThinkingAnimation();
-        AppendHistory($"\n[You]: {userText}\n");
+        AppendHistoryBlock($"[You]: {userText}\n");
         SetStatus("thinking...");
 
         _layout!.InputView.Text = "";
@@ -250,15 +252,14 @@ public class TerminalGuiChatViewController : IDisposable
         try
         {
             await _chatService.SendMessageAsync(userText, _conversation, token);
-            AppendHistory("\n");
         }
         catch (OperationCanceledException)
         {
-            AppendHistory("\n[canceled]\n");
+            AppendHistoryBlock("[canceled]\n");
         }
         catch (Exception ex)
         {
-            AppendHistory($"\n[error] {ex.Message}\n");
+            AppendHistoryBlock($"[error] {ex.Message}\n");
         }
         finally
         {
@@ -270,6 +271,7 @@ public class TerminalGuiChatViewController : IDisposable
 
             StopThinkingAnimation();
             SetStatus("Ready");
+            _assistantBlockOpen = false;
         }
     }
 
@@ -280,6 +282,7 @@ public class TerminalGuiChatViewController : IDisposable
         {
             _historyManager?.Clear();
             _planPresenter?.Clear();
+            _assistantBlockOpen = false;
             return true;
         }
 
@@ -355,7 +358,11 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void OnTextReceived(string text)
     {
-        EnqueueUi(() => AppendHistory(text));
+        EnqueueUi(() =>
+        {
+            EnsureAssistantBlock();
+            AppendHistory(text);
+        });
     }
 
     private void OnReasoningReceived(string text)
@@ -383,12 +390,13 @@ public class TerminalGuiChatViewController : IDisposable
                 var args = string.IsNullOrWhiteSpace(toolEvent.ArgumentsJson)
                     ? ""
                     : toolEvent.ArgumentsJson;
-                AppendHistory($"\n[tool] {toolEvent.ToolName} {args}\n");
+                AppendHistoryBlock($"[tool] {toolEvent.ToolName} {args}\n");
             }
             else
             {
-                AppendHistory(_toolSummaryBuilder.BuildToolCall(toolEvent));
+                AppendHistoryBlock(_toolSummaryBuilder.BuildToolCall(toolEvent));
             }
+            _assistantBlockOpen = false;
         });
     }
 
@@ -407,6 +415,7 @@ public class TerminalGuiChatViewController : IDisposable
             HandlePlan(toolEvent);
             if (_displayMode == ChatDisplayMode.Normal)
                 return;
+            _assistantBlockOpen = false;
             return;
         }
 
@@ -416,9 +425,10 @@ public class TerminalGuiChatViewController : IDisposable
             SetStatus("Ready");
             EnqueueUi(() =>
             {
-                AppendHistory(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText));
+                AppendHistoryBlock(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText));
                 _planPresenter?.Clear();
                 _sessionStopwatch.Restart();
+                _assistantBlockOpen = false;
             });
             return;
         }
@@ -430,12 +440,13 @@ public class TerminalGuiChatViewController : IDisposable
                 var output = toolEvent.Result.Success
                     ? toolEvent.Result.Output
                     : toolEvent.Result.Error;
-                AppendHistory($"\n[result] {toolEvent.ToolName}: {output}\n");
+                AppendHistoryBlock($"[result] {toolEvent.ToolName}: {output}\n");
             }
             else
             {
-                AppendHistory(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText));
+                AppendHistoryBlock(_toolSummaryBuilder.BuildToolSummary(toolEvent, _lastUsage, GetDurationText));
             }
+            _assistantBlockOpen = false;
         });
     }
 
@@ -462,7 +473,7 @@ public class TerminalGuiChatViewController : IDisposable
 
         _chatService.SetModel(model);
         _model = model;
-        AppendHistory($"\n[model] Switched to {model}\n");
+        AppendHistoryBlock($"[model] Switched to {model}\n");
 
         if (_layout == null)
             return;
@@ -482,7 +493,7 @@ public class TerminalGuiChatViewController : IDisposable
         _layout.Window.Title = BuildWindowTitle();
         _layout.ModeDebug.Checked = mode == ChatDisplayMode.Debug;
         _layout.ModeNormal.Checked = mode == ChatDisplayMode.Normal;
-        AppendHistory($"\n[mode] Switched to {modeLabel} mode\n");
+        AppendHistoryBlock($"[mode] Switched to {modeLabel} mode\n");
     }
 
     private void AppendHistory(string text)
@@ -490,9 +501,24 @@ public class TerminalGuiChatViewController : IDisposable
         _historyManager?.Append(text);
     }
 
+    private void EnsureAssistantBlock()
+    {
+        if (_assistantBlockOpen)
+            return;
+
+        _historyManager?.AppendToNewBlock(string.Empty);
+        _assistantBlockOpen = true;
+    }
+
+    private void AppendHistoryBlock(string text)
+    {
+        _historyManager?.AppendToNewBlock(text);
+        _assistantBlockOpen = false;
+    }
+
     private void AppendCommandOutput(string text)
     {
-        AppendHistory(text);
+        AppendHistoryBlock(text);
     }
 
     private void AppendReasoning(string text)
@@ -550,6 +576,7 @@ public class TerminalGuiChatViewController : IDisposable
         _lastUsage = null;
         _historyManager?.ResetReasoningBlock();
         _sessionStopwatch.Restart();
+        _assistantBlockOpen = false;
 
         _historyManager?.Clear();
         _planPresenter?.Clear();
@@ -562,7 +589,7 @@ public class TerminalGuiChatViewController : IDisposable
         _persistApiKey(null);
         SetChatService(new DisabledChatService(), false);
         StartNewSession();
-        AppendHistory("\n[system] Logged out\n");
+        AppendHistoryBlock("[system] Logged out\n");
         ShowApiKeyPopover();
     }
 

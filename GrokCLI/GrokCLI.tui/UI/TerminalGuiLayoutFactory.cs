@@ -86,14 +86,12 @@ public sealed class TerminalGuiLayoutFactory : ITerminalGuiLayoutFactory
         };
         window.ColorScheme = baseScheme;
 
-        var historyView = new TextView
+        var historyView = new ListView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
             Height = Dim.Fill(reservedHeight),
-            ReadOnly = true,
-            WordWrap = true,
             ColorScheme = baseScheme
         };
 

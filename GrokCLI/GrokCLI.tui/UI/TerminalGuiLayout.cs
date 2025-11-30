@@ -7,7 +7,7 @@ public sealed class TerminalGuiLayout
     public TerminalGuiLayout(
         Toplevel top,
         Window window,
-        TextView historyView,
+        ListView historyView,
         Label statusLabel,
         FrameView planFrame,
         Label planTitleLabel,
@@ -38,7 +38,7 @@ public sealed class TerminalGuiLayout
 
     public Toplevel Top { get; }
     public Window Window { get; }
-    public TextView HistoryView { get; }
+    public ListView HistoryView { get; }
     public Label StatusLabel { get; }
     public FrameView PlanFrame { get; }
     public Label PlanTitleLabel { get; }

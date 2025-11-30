@@ -7,7 +7,7 @@ public sealed class PlanPresenter
     private readonly FrameView _planFrame;
     private readonly Label _planTitleLabel;
     private readonly TextView _planItemsView;
-    private readonly TextView _historyView;
+    private readonly View _historyView;
     private readonly Window _window;
     private readonly int _planExpandedHeight;
     private readonly int _planCollapsedHeight;
@@ -19,7 +19,7 @@ public sealed class PlanPresenter
         FrameView planFrame,
         Label planTitleLabel,
         TextView planItemsView,
-        TextView historyView,
+        View historyView,
         Window window,
         int planExpandedHeight,
         int planCollapsedHeight,
