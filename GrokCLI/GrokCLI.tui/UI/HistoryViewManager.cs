@@ -16,6 +16,7 @@ public sealed class HistoryViewManager
     private int _thinkingBlockIndex = -1;
     private readonly ColorScheme _defaultScheme;
     private readonly ColorScheme _userScheme;
+    private readonly ColorScheme _assistantScheme;
 
     public HistoryViewManager(ScrollView historyView)
     {
@@ -32,6 +33,14 @@ public sealed class HistoryViewManager
             HotNormal = new GuiAttribute(Color.Black, Color.Gray),
             HotFocus = new GuiAttribute(Color.Black, Color.Gray),
             Disabled = new GuiAttribute(Color.Gray, Color.Black)
+        };
+        _assistantScheme = new ColorScheme
+        {
+            Normal = new GuiAttribute(Color.White, Color.DarkGray),
+            Focus = new GuiAttribute(Color.White, Color.DarkGray),
+            HotNormal = new GuiAttribute(Color.White, Color.DarkGray),
+            HotFocus = new GuiAttribute(Color.White, Color.DarkGray),
+            Disabled = new GuiAttribute(Color.Gray, Color.DarkGray)
         };
     }
 
@@ -62,7 +71,7 @@ public sealed class HistoryViewManager
 
         if (IsUserLine(firstLine))
         {
-            AddItem(new HistoryLabelItem(normalized, _userScheme, false));
+            AddItem(new HistoryLabelItem(normalized, _userScheme, false, false, true));
             return;
         }
 
@@ -138,6 +147,7 @@ public sealed class HistoryViewManager
     private void AttachBlock(HistoryBlock block)
     {
         block.Frame.MouseClick += _ => ShowBlockDetails(block);
+        block.BodyView.MouseClick += _ => ShowBlockDetails(block);
         _historyView.Add(block.Frame);
         _blocks.Add(block);
         _activeBlockIndex = _blocks.Count - 1;
@@ -160,12 +170,13 @@ public sealed class HistoryViewManager
     private void LayoutBlocks(bool scrollToEnd)
     {
         var width = Math.Max(1, _historyView.Frame.Width - (_historyView.ShowVerticalScrollIndicator ? 1 : 0));
-        var innerWidth = Math.Max(1, width - 2);
         var y = 0;
 
         foreach (var block in _blocks)
         {
-            var frameHeight = block.UpdateLayout(width, innerWidth);
+            var blockWidth = block is HistoryBlock ? Math.Max(1, width / 2) : width;
+            var innerWidth = Math.Max(1, blockWidth - 2);
+            var frameHeight = block.UpdateLayout(blockWidth, innerWidth);
             block.View.X = 0;
             block.View.Y = y;
             y += frameHeight;
@@ -223,7 +234,7 @@ public sealed class HistoryViewManager
             label.IsAssistant)
             return;
 
-        AddItem(new HistoryLabelItem(string.Empty, _defaultScheme, true, true));
+        AddItem(new HistoryLabelItem(string.Empty, _assistantScheme, true, true, true));
     }
 
     private static bool IsWorkedLine(string line)
@@ -354,12 +365,14 @@ internal sealed class HistoryLabelItem : IHistoryItem
     private readonly Label _label;
     private readonly bool _acceptsAppend;
     private readonly bool _isAssistant;
+    private readonly bool _pad;
     private readonly StringBuilder _content = new();
 
-    public HistoryLabelItem(string text, ColorScheme? scheme, bool acceptsAppend, bool isAssistant = false)
+    public HistoryLabelItem(string text, ColorScheme? scheme, bool acceptsAppend, bool isAssistant = false, bool applyPadding = false)
     {
         _acceptsAppend = acceptsAppend;
         _isAssistant = isAssistant;
+        _pad = applyPadding;
         _content.Append(text ?? string.Empty);
         _label = new Label(_content.ToString())
         {
@@ -388,7 +401,10 @@ internal sealed class HistoryLabelItem : IHistoryItem
 
     public int UpdateLayout(int frameWidth, int innerWidth)
     {
-        var wrapped = Wrap(_content.ToString(), frameWidth).ToList();
+        var content = _content.ToString().TrimEnd('\n', '\r');
+        if (_pad)
+            content = $"\n{content}\n";
+        var wrapped = Wrap(content, frameWidth).ToList();
         if (wrapped.Count == 0)
             wrapped.Add(ustring.Make(string.Empty));
 
