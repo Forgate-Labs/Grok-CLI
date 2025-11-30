@@ -41,7 +41,6 @@ var appConfig = LoadConfig(configPath) ?? new AppConfig
 };
 services.AddSingleton(appConfig);
 var displayMode = ResolveDisplayMode(args);
-var useTerminalGui = true;
 
 Console.OutputEncoding = new UTF8Encoding(false);
 Console.InputEncoding = new UTF8Encoding(false);
@@ -50,13 +49,6 @@ var apiKey = Environment.GetEnvironmentVariable("XAI_API_KEY");
 if (string.IsNullOrWhiteSpace(apiKey))
 {
     apiKey = appConfig?.XaiApiKey;
-}
-
-if (!useTerminalGui && string.IsNullOrWhiteSpace(apiKey))
-{
-    Console.Write("Enter XAI_API_KEY: ");
-    apiKey = Console.ReadLine()?.Trim();
-    apiKey = PersistApiKeyIfProvided(appConfig, apiKey);
 }
 
 bool HasApiKey() => !string.IsNullOrWhiteSpace(apiKey);
@@ -80,247 +72,17 @@ Action<string?> persistApiKey = key =>
     apiKey = PersistApiKeyIfProvided(appConfig, key);
 };
 
-if (useTerminalGui)
-{
-    var guiController = new TerminalGuiChatViewController(
-        chatService,
-        serviceProvider,
-        HasApiKey(),
-        displayMode,
-        GetVersion(),
-        configPath,
-        createChatService,
-        persistApiKey);
+var guiController = new TerminalGuiChatViewController(
+    chatService,
+    serviceProvider,
+    HasApiKey(),
+    displayMode,
+    GetVersion(),
+    configPath,
+    createChatService,
+    persistApiKey);
 
-    guiController.Run();
-}
-else
-{
-    var ui = new SimpleTerminalUI();
-    var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion(), configPath);
-
-if (!HasApiKey())
-{
-    controller.ShowSystemMessage("XAI_API_KEY is not set. Enter it now to continue.");
-    controller.ShowSystemMessage("Type logout at any time to clear the key and lock the chat.");
-    controller.ShowSystemMessage("");
-}
-else
-{
-    controller.ShowWelcomeMessage();
-}
-
-ui.UpdateInputLine();
-
-    while (ui.IsRunning)
-    {
-        if (Console.KeyAvailable)
-        {
-            var key = Console.ReadKey(true);
-
-            if (key.Key == ConsoleKey.Escape)
-            {
-                if (controller.IsProcessing)
-                {
-                    controller.CancelProcessing();
-                }
-                else
-                {
-                    ui.ClearInput();
-                }
-
-                continue;
-            }
-
-            if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
-            {
-                ui.InsertNewline();
-            }
-            else if (key.Key == ConsoleKey.Enter && HasApiKey())
-            {
-                var userInput = ui.GetCurrentInput()?.Trim();
-
-                if (!string.IsNullOrWhiteSpace(userInput) &&
-                    (userInput.Equals("logout", StringComparison.OrdinalIgnoreCase)))
-                {
-                    ui.ClearInput();
-                    ui.HideInputLine();
-                    Console.WriteLine("[You]: logout");
-                    Console.WriteLine("Logging out and clearing XAI_API_KEY...");
-                    ClearApiKey(appConfig);
-                    apiKey = null;
-                    Console.WriteLine("XAI_API_KEY cleared. Please restart or set a new key to continue.");
-                    ui.ShowInputLine();
-                }
-                else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
-                {
-                    var command = "clear";
-
-                    _ = Task.Run(async () =>
-                    {
-                        ui.HideInputLine();
-                        ui.ShowUserPrompt(userInput);
-
-                        ui.ClearInput();
-                        ui.SetProcessingStatus("executing...");
-
-                        var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
-                        var result = await shellExecutor.ExecuteAsync(command, 300);
-
-                        ui.SetProcessingStatus("");
-
-                        Console.WriteLine($"\n💻 [Command]: {command}");
-                        Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
-
-                        if (!string.IsNullOrEmpty(result.Output))
-                        {
-                            Console.WriteLine($"\n✅ [Output]:");
-                            Console.WriteLine(result.Output);
-                        }
-
-                        if (!string.IsNullOrEmpty(result.Error))
-                        {
-                            Console.WriteLine($"\n❌ [Error]:");
-                            Console.WriteLine(result.Error);
-                        }
-
-                        Console.WriteLine();
-                        ui.ShowInputLine();
-                    });
-                }
-                else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.StartsWith("/cmd ") || userInput.StartsWith("cmd ")))
-                {
-                    var command = userInput.StartsWith("/cmd ")
-                        ? userInput.Substring(5).Trim()
-                        : userInput.Substring(4).Trim();
-
-                    if (!string.IsNullOrWhiteSpace(command))
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            ui.HideInputLine();
-                            ui.ShowUserPrompt(userInput);
-
-                            ui.ClearInput();
-                            ui.SetProcessingStatus("executing...");
-
-                            var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
-                            var result = await shellExecutor.ExecuteAsync(command, 300);
-
-                            ui.SetProcessingStatus("");
-
-                            if (displayMode == ChatDisplayMode.Debug)
-                            {
-                                Console.WriteLine($"\n💻 [Command]: {command}");
-                                Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
-
-                                if (!string.IsNullOrEmpty(result.Output))
-                                {
-                                    Console.WriteLine($"\n✅ [Output]:");
-                                    Console.WriteLine(result.Output);
-                                }
-
-                                if (!string.IsNullOrEmpty(result.Error))
-                                {
-                                    Console.WriteLine($"\n❌ [Error]:");
-                                    Console.WriteLine(result.Error);
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine($"\n● Run({command})");
-
-                                var success = result.ExitCode == 0;
-                                var body = success
-                                    ? (!string.IsNullOrWhiteSpace(result.Output)
-                                        ? result.Output
-                                        : "Completed with no output")
-                                    : (!string.IsNullOrWhiteSpace(result.Error)
-                                        ? result.Error
-                                        : (!string.IsNullOrWhiteSpace(result.Output)
-                                            ? result.Output
-                                            : "Command failed"));
-
-                                var lines = body.ReplaceLineEndings("\n").Split('\n');
-                                var color = success ? ConsoleColor.Green : ConsoleColor.Red;
-                                var previous = Console.ForegroundColor;
-                                Console.ForegroundColor = color;
-                                foreach (var line in lines)
-                                {
-                                    Console.WriteLine($"⎿ {line}");
-                                }
-                                Console.ForegroundColor = previous;
-                            }
-
-                            Console.WriteLine();
-                            ui.ShowInputLine();
-                        });
-                    }
-                    else
-                    {
-                        ui.ClearInput();
-                    }
-                }
-                else if (!string.IsNullOrWhiteSpace(userInput) &&
-                    (userInput.Equals("debug", StringComparison.OrdinalIgnoreCase) ||
-                     userInput.Equals("normal", StringComparison.OrdinalIgnoreCase)))
-                {
-                    var targetMode = userInput.Equals("debug", StringComparison.OrdinalIgnoreCase)
-                        ? ChatDisplayMode.Debug
-                        : ChatDisplayMode.Normal;
-
-                    ui.HideInputLine();
-                    ui.ShowUserPrompt(userInput);
-                    ui.ClearInput();
-
-                    displayMode = targetMode;
-                    controller.SetDisplayMode(targetMode);
-
-                    ui.ShowInputLine();
-                }
-                else
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        await controller.SendMessageAsync();
-                    });
-                }
-            }
-            else
-            {
-                ui.HandleInput(key);
-            }
-        }
-        else
-        {
-            if (!HasApiKey())
-            {
-                ui.HideInputLine();
-                Console.Write("Enter XAI_API_KEY: ");
-                var entered = Console.ReadLine()?.Trim();
-                apiKey = PersistApiKeyIfProvided(appConfig, entered);
-
-                if (HasApiKey())
-                {
-                    Console.WriteLine("API key saved. Restart the application to enable chat.");
-                }
-                else
-                {
-                    Console.WriteLine("No API key provided. Chat remains locked.");
-                }
-
-                ui.ShowInputLine();
-            }
-            else
-            {
-                Thread.Sleep(10);
-            }
-        }
-    }
-
-    Console.WriteLine();
-    Console.CursorVisible = true;
-}
+guiController.Run();
 
 ChatDisplayMode ResolveDisplayMode(string[] args)
 {
@@ -340,7 +102,7 @@ ChatDisplayMode ResolveDisplayMode(string[] args)
 
     var env = Environment.GetEnvironmentVariable("GROK_MODE");
     if (!string.IsNullOrWhiteSpace(env))
-    return ParseDisplayMode(env);
+        return ParseDisplayMode(env);
 
     return ChatDisplayMode.Normal;
 }
@@ -402,11 +164,6 @@ string? PersistApiKeyIfProvided(AppConfig? config, string? key)
 
     Environment.SetEnvironmentVariable("XAI_API_KEY", key);
     return key;
-}
-
-void ClearApiKey(AppConfig? config)
-{
-    PersistApiKeyIfProvided(config, null);
 }
 
 AppConfig? LoadConfig(string configPath)
