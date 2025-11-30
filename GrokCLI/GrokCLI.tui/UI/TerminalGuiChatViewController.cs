@@ -15,10 +15,12 @@ namespace GrokCLI.UI;
 
 public class TerminalGuiChatViewController : IDisposable
 {
-    private readonly IChatService _chatService;
+    private IChatService _chatService = null!;
     private readonly List<ChatMessage> _conversation;
     private readonly IServiceProvider _services;
-    private readonly bool _isEnabled;
+    private readonly Func<string, IChatService> _chatServiceFactory;
+    private readonly Action<string?> _persistApiKey;
+    private bool _hasApiKey;
     private ChatDisplayMode _displayMode;
     private string _model = "grok-4-1-fast-reasoning";
     private ChatTokenUsage? _lastUsage;
@@ -52,36 +54,32 @@ public class TerminalGuiChatViewController : IDisposable
     private CancellationTokenSource? _thinkingAnimationCts;
     private int _thinkingDotCount;
     private CancellationTokenSource? _cts;
+    private bool _apiKeyPromptOpen;
 
     public TerminalGuiChatViewController(
         IChatService chatService,
         IServiceProvider services,
-        bool isEnabled,
+        bool hasApiKey,
         ChatDisplayMode displayMode,
         string version,
-        string configPath)
+        string configPath,
+        Func<string, IChatService> chatServiceFactory,
+        Action<string?> persistApiKey)
     {
-        _chatService = chatService;
         _services = services;
+        _chatServiceFactory = chatServiceFactory;
+        _persistApiKey = persistApiKey;
         _conversation = new List<ChatMessage>();
-        _isEnabled = isEnabled;
+        _hasApiKey = hasApiKey;
         _displayMode = displayMode;
         _version = version;
         _configPath = configPath;
         _sessionStopwatch = Stopwatch.StartNew();
-
-        _chatService.OnTextReceived += OnTextReceived;
-        _chatService.OnReasoningReceived += OnReasoningReceived;
-        _chatService.OnUsageReceived += OnUsageReceived;
-        _chatService.OnToolCalled += OnToolCalled;
-        _chatService.OnToolResult += OnToolResult;
+        SetChatService(chatService, hasApiKey);
     }
 
     public void Run()
     {
-        if (!_isEnabled)
-            return;
-
         Application.Init();
 
         BuildUI();
@@ -91,17 +89,43 @@ public class TerminalGuiChatViewController : IDisposable
 
     public void Dispose()
     {
-        _chatService.OnTextReceived -= OnTextReceived;
-        _chatService.OnReasoningReceived -= OnReasoningReceived;
-        _chatService.OnUsageReceived -= OnUsageReceived;
-        _chatService.OnToolCalled -= OnToolCalled;
-        _chatService.OnToolResult -= OnToolResult;
+        DetachChatService();
         if (_cts != null)
         {
             _cts.Cancel();
             _cts.Dispose();
         }
+        StopThinkingAnimation();
         Application.Shutdown();
+    }
+
+    private void SetChatService(IChatService chatService, bool hasApiKey)
+    {
+        DetachChatService();
+        _chatService = chatService;
+        _hasApiKey = hasApiKey;
+        AttachChatService();
+    }
+
+    private void AttachChatService()
+    {
+        _chatService.OnTextReceived += OnTextReceived;
+        _chatService.OnReasoningReceived += OnReasoningReceived;
+        _chatService.OnUsageReceived += OnUsageReceived;
+        _chatService.OnToolCalled += OnToolCalled;
+        _chatService.OnToolResult += OnToolResult;
+    }
+
+    private void DetachChatService()
+    {
+        if (_chatService == null)
+            return;
+
+        _chatService.OnTextReceived -= OnTextReceived;
+        _chatService.OnReasoningReceived -= OnReasoningReceived;
+        _chatService.OnUsageReceived -= OnUsageReceived;
+        _chatService.OnToolCalled -= OnToolCalled;
+        _chatService.OnToolResult -= OnToolResult;
     }
 
     private void BuildUI()
@@ -176,7 +200,7 @@ public class TerminalGuiChatViewController : IDisposable
             Y = Pos.Bottom(_historyView),
             Width = Dim.Fill(),
             Height = StatusHeight,
-            Text = "Ready",
+            Text = _hasApiKey ? "Ready" : "API key required",
             ColorScheme = baseScheme
         };
 
@@ -235,16 +259,8 @@ public class TerminalGuiChatViewController : IDisposable
             Width = Dim.Fill(),
             Height = InputHeight,
             CanFocus = true,
-            ReadOnly = false
-        };
-        var inputColors = new GuiAttribute(Color.Black, Color.Gray);
-        _inputView.ColorScheme = new ColorScheme
-        {
-            Normal = inputColors,
-            Focus = inputColors,
-            HotNormal = inputColors,
-            HotFocus = inputColors,
-            Disabled = inputColors
+            ReadOnly = false,
+            ColorScheme = baseScheme
         };
 
         _inputView.KeyDown += InputViewOnKeyDown;
@@ -313,6 +329,7 @@ public class TerminalGuiChatViewController : IDisposable
                 new MenuBarItem("_Grok", new[]
                 {
                     new MenuItem("_New", "", StartNewSession),
+                    new MenuItem("_Logout", "", ShowLogoutPopover),
                     new MenuItem("_Quit", "", () => Application.RequestStop())
                 }),
                 new MenuBarItem("_Mode", new[]
@@ -336,10 +353,17 @@ public class TerminalGuiChatViewController : IDisposable
         setModelSelection(_model);
         Application.MainLoop?.AddIdle(() =>
         {
-            if (_welcomeShown)
-                return false;
-            _welcomeShown = true;
-            AppendWelcomeMessage();
+            if (!_welcomeShown)
+            {
+                _welcomeShown = true;
+                AppendWelcomeMessage();
+            }
+
+            if (!_hasApiKey && !_apiKeyPromptOpen)
+            {
+                ShowApiKeyPopover();
+            }
+
             return false;
         });
         _inputView.SetFocus();
@@ -396,9 +420,8 @@ public class TerminalGuiChatViewController : IDisposable
             return;
 
         var builder = new StringBuilder();
-        builder.AppendLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
+        builder.AppendLine("Commands: Ctrl+J (newline) | cmd <command> or /cmd <command> (run shell)");
         builder.AppendLine($"Config: {_configPath}");
-        builder.AppendLine($"Model: {_model}");
         builder.AppendLine();
 
         _historyView.Text = builder.ToString();
@@ -433,6 +456,12 @@ public class TerminalGuiChatViewController : IDisposable
     {
         if (_cts != null)
             return;
+
+        if (!_hasApiKey)
+        {
+            ShowApiKeyPopover();
+            return;
+        }
 
         var text = _inputView?.Text?.ToString() ?? string.Empty;
         var userText = text.Trim();
@@ -493,6 +522,13 @@ public class TerminalGuiChatViewController : IDisposable
                 _historyView.Text = "";
             ResetReasoningBlock();
             ClearPlan();
+            return true;
+        }
+
+        if (string.Equals(userText, "logout", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(userText, "/logout", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowLogoutPopover();
             return true;
         }
 
@@ -755,7 +791,7 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void SetStatus(string text)
     {
-        EnqueueUi(() => SetStatusText(text));
+        EnqueueUi(() => SetStatusText($" {text}"));
     }
 
     private string BuildWindowTitle()
@@ -1216,7 +1252,132 @@ public class TerminalGuiChatViewController : IDisposable
 
         ClearPlan();
         AppendWelcomeMessage();
-        SetStatus("Ready");
+        SetStatus(_hasApiKey ? " Ready" : " API key required");
+    }
+
+    private void PerformLogout()
+    {
+        _persistApiKey(null);
+        SetChatService(new DisabledChatService(), false);
+        StartNewSession();
+        AppendHistory("\n[system] Logged out\n");
+        ShowApiKeyPopover();
+    }
+
+    private void ShowLogoutPopover()
+    {
+        var popover = new Popover("Logout", 40, 9);
+        var message = new Label("Are you sure you want to log out?")
+        {
+            X = 1,
+            Y = 1,
+            Width = Dim.Fill() - 2
+        };
+
+        var confirmButton = new Button("Yes")
+        {
+            IsDefault = true,
+            X = 1,
+            Y = Pos.Bottom(message) + 1
+        };
+
+        var cancelButton = new Button("Cancel")
+        {
+            X = Pos.Right(confirmButton) + 2,
+            Y = Pos.Top(confirmButton)
+        };
+
+        confirmButton.Clicked += () =>
+        {
+            PerformLogout();
+            Application.RequestStop();
+        };
+
+        cancelButton.Clicked += () => Application.RequestStop();
+
+        popover.Add(message, confirmButton, cancelButton);
+        Application.Run(popover);
+    }
+
+    private void CompleteLogin(string apiKey)
+    {
+        _persistApiKey(apiKey);
+        SetChatService(_chatServiceFactory(apiKey), true);
+        _chatService.SetModel(_model);
+        StartNewSession();
+    }
+
+    private void ShowApiKeyPopover()
+    {
+        if (_apiKeyPromptOpen)
+            return;
+
+        _apiKeyPromptOpen = true;
+
+        var popover = new Popover("API Key Required", 60, 12);
+        var message = new Label("Enter XAI_API_KEY to continue")
+        {
+            X = 1,
+            Y = 1,
+            Width = Dim.Fill() - 2
+        };
+
+        var input = new TextField("")
+        {
+            X = 1,
+            Y = Pos.Bottom(message) + 1,
+            Width = Dim.Fill() - 2
+        };
+
+        var errorLabel = new Label("")
+        {
+            X = 1,
+            Y = Pos.Bottom(input) + 1,
+            Width = Dim.Fill() - 2,
+            ColorScheme = Colors.Error
+        };
+
+        var saveButton = new Button("Save")
+        {
+            IsDefault = true,
+            X = 1,
+            Y = Pos.Bottom(errorLabel) + 1
+        };
+
+        var cancelButton = new Button("Cancel")
+        {
+            X = Pos.Right(saveButton) + 2,
+            Y = Pos.Top(saveButton)
+        };
+
+        saveButton.Clicked += () =>
+        {
+            var value = input.Text?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                errorLabel.Text = "API key is required";
+                return;
+            }
+
+            CompleteLogin(value);
+            Application.RequestStop();
+        };
+
+        cancelButton.Clicked += () => Application.RequestStop();
+
+        popover.Add(message, input, errorLabel, saveButton, cancelButton);
+        try
+        {
+            Application.Run(popover);
+        }
+        finally
+        {
+            _apiKeyPromptOpen = false;
+        }
+
+        _inputView?.SetFocus();
+        if (!_hasApiKey)
+            SetStatus("API key required");
     }
 
     private void StartThinkingAnimation()
@@ -1231,7 +1392,7 @@ public class TerminalGuiChatViewController : IDisposable
         {
             while (!token.IsCancellationRequested)
             {
-                var dots = new string('.', (_thinkingDotCount % 3) + 1);
+                var dots = new string('.', (_thinkingDotCount % 4));
                 _thinkingDotCount++;
                 var elapsed = _sessionStopwatch.Elapsed;
                 var text = $"Thinking{dots} ({FormatDuration((int)Math.Max(0, elapsed.TotalSeconds))} - esc to interrupt)";

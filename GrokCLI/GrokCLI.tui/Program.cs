@@ -19,6 +19,7 @@ services.AddSingleton<FileSystemHelper>();
 services.AddSingleton<IWorkingDirectoryService, WorkingDirectoryService>();
 services.AddSingleton<IFileEditService, FileEditService>();
 services.AddSingleton<ISearchService, SearchService>();
+services.AddSingleton<IToolExecutor, ToolExecutor>();
 
 services.AddSingleton<ITool, CodeExecutionTool>();
 services.AddSingleton<ITool, CommandExecutionTool>();
@@ -40,6 +41,7 @@ var appConfig = LoadConfig(configPath) ?? new AppConfig
 };
 services.AddSingleton(appConfig);
 var displayMode = ResolveDisplayMode(args);
+var useTerminalGui = true;
 
 Console.OutputEncoding = new UTF8Encoding(false);
 Console.InputEncoding = new UTF8Encoding(false);
@@ -50,7 +52,7 @@ if (string.IsNullOrWhiteSpace(apiKey))
     apiKey = appConfig?.XaiApiKey;
 }
 
-if (string.IsNullOrWhiteSpace(apiKey))
+if (!useTerminalGui && string.IsNullOrWhiteSpace(apiKey))
 {
     Console.Write("Enter XAI_API_KEY: ");
     apiKey = Console.ReadLine()?.Trim();
@@ -59,28 +61,24 @@ if (string.IsNullOrWhiteSpace(apiKey))
 
 bool HasApiKey() => !string.IsNullOrWhiteSpace(apiKey);
 
-if (HasApiKey())
-{
-    services.AddSingleton<IGrokClient>(sp => new GrokClient(apiKey!));
-    services.AddSingleton<IToolExecutor, ToolExecutor>();
-    services.AddSingleton<IChatService>(sp =>
-    {
-        var config = sp.GetService<AppConfig>();
-        var prePrompt = ComposePrePrompt(config);
-        return new ChatService(
-            sp.GetRequiredService<IGrokClient>(),
-            sp.GetRequiredService<IToolExecutor>(),
-            sp.GetRequiredService<IEnumerable<ITool>>(),
-            prePrompt);
-    });
-}
-
 var serviceProvider = services.BuildServiceProvider();
 
+var prePrompt = ComposePrePrompt(appConfig);
+Func<string, IChatService> createChatService = key =>
+    new ChatService(
+        new GrokClient(key),
+        serviceProvider.GetRequiredService<IToolExecutor>(),
+        serviceProvider.GetRequiredService<IEnumerable<ITool>>(),
+        prePrompt);
+
 var chatService = HasApiKey()
-    ? serviceProvider.GetRequiredService<IChatService>()
+    ? createChatService(apiKey!)
     : new DisabledChatService();
-var useTerminalGui = true;
+
+Action<string?> persistApiKey = key =>
+{
+    apiKey = PersistApiKeyIfProvided(appConfig, key);
+};
 
 if (useTerminalGui)
 {
@@ -90,7 +88,9 @@ if (useTerminalGui)
         HasApiKey(),
         displayMode,
         GetVersion(),
-        configPath);
+        configPath,
+        createChatService,
+        persistApiKey);
 
     guiController.Run();
 }
@@ -382,7 +382,17 @@ string GetVersion()
 string? PersistApiKeyIfProvided(AppConfig? config, string? key)
 {
     if (string.IsNullOrWhiteSpace(key))
+    {
+        Environment.SetEnvironmentVariable("XAI_API_KEY", null);
+
+        if (config != null)
+        {
+            config.XaiApiKey = null;
+            SaveConfig(config);
+        }
+
         return null;
+    }
 
     if (config != null)
     {
@@ -390,16 +400,13 @@ string? PersistApiKeyIfProvided(AppConfig? config, string? key)
         SaveConfig(config);
     }
 
+    Environment.SetEnvironmentVariable("XAI_API_KEY", key);
     return key;
 }
 
 void ClearApiKey(AppConfig? config)
 {
-    if (config == null)
-        return;
-
-    config.XaiApiKey = null;
-    SaveConfig(config);
+    PersistApiKeyIfProvided(config, null);
 }
 
 AppConfig? LoadConfig(string configPath)
