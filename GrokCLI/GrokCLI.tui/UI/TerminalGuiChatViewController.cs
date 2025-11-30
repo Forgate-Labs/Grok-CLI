@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
 using GrokCLI.Models;
 using GrokCLI.Services;
 using OpenAI.Chat;
@@ -21,6 +22,11 @@ public class TerminalGuiChatViewController : IDisposable
     private readonly string _version;
     private readonly string _configPath;
     private readonly Stopwatch _sessionStopwatch;
+    private const int PlanExpandedHeight = 7;
+    private const int PlanCollapsedHeight = 0;
+    private const int InputHeight = 2;
+    private const int StatusHeight = 1;
+    private bool _welcomeShown;
     private Toplevel? _top;
     private Window? _window;
     private TextView? _historyView;
@@ -29,7 +35,6 @@ public class TerminalGuiChatViewController : IDisposable
     private FrameView? _planFrame;
     private Label? _planTitleLabel;
     private TextView? _planItemsView;
-    private Label? _configLabel;
     private CancellationTokenSource? _cts;
 
     public TerminalGuiChatViewController(
@@ -81,11 +86,8 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void BuildUI()
     {
-        const int planHeight = 7;
-        const int inputHeight = 1;
-        const int statusHeight = 1;
-        const int configHeight = 1;
-        var reservedHeight = planHeight + inputHeight + statusHeight + configHeight;
+        var planHeight = PlanCollapsedHeight;
+        var reservedHeight = planHeight + InputHeight + StatusHeight;
 
         var baseNormal = new GuiAttribute(Color.White, Color.Black);
         var baseFocus = new GuiAttribute(Color.BrightYellow, Color.Black);
@@ -152,7 +154,7 @@ public class TerminalGuiChatViewController : IDisposable
             X = 0,
             Y = Pos.Bottom(_historyView),
             Width = Dim.Fill(),
-            Height = statusHeight,
+            Height = StatusHeight,
             Text = "Ready",
             ColorScheme = baseScheme
         };
@@ -198,7 +200,7 @@ public class TerminalGuiChatViewController : IDisposable
             X = 0,
             Y = Pos.Bottom(_planFrame),
             Width = Dim.Fill(),
-            Height = inputHeight,
+            Height = InputHeight,
             CanFocus = true,
             ReadOnly = false
         };
@@ -213,16 +215,6 @@ public class TerminalGuiChatViewController : IDisposable
         };
 
         _inputView.KeyDown += InputViewOnKeyDown;
-
-        _configLabel = new Label
-        {
-            X = 0,
-            Y = Pos.Bottom(_inputView),
-            Width = Dim.Fill(),
-            Height = configHeight,
-            Text = $"Config: {_configPath}",
-            ColorScheme = baseScheme
-        };
 
         var menu = new MenuBar
         {
@@ -240,9 +232,34 @@ public class TerminalGuiChatViewController : IDisposable
             }
         };
 
-        _window!.Add(_historyView, _statusLabel, _planFrame, _inputView, _configLabel);
+        _window!.Add(_historyView, _statusLabel, _planFrame, _inputView);
         _top!.Add(menu, _window);
+        Application.MainLoop?.AddIdle(() =>
+        {
+            if (_welcomeShown)
+                return false;
+            _welcomeShown = true;
+            AppendWelcomeMessage();
+            return false;
+        });
         _inputView.SetFocus();
+    }
+
+    private void AppendWelcomeMessage()
+    {
+        if (_historyView == null)
+            return;
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"Grok CLI {_version} - Agentic Mode");
+        builder.AppendLine($"Mode: {_displayMode} (type \"debug\" or \"normal\" to switch)");
+        builder.AppendLine("Commands: Enter (send) | Ctrl+J (newline) | Esc (clear input or cancel run) | debug/normal (switch mode) | cmd <command> or /cmd <command> (run shell) | clear or /clear (clear screen) | logout (clear API key) | Ctrl+C (exit)");
+        builder.AppendLine($"Config: {_configPath}");
+        builder.AppendLine("Model: grok-4-1-fast-reasoning");
+        builder.AppendLine();
+
+        _historyView.Text = builder.ToString();
+        _historyView.MoveEnd();
     }
 
     private void InputViewOnKeyDown(View.KeyEventEventArgs args)
@@ -448,7 +465,11 @@ public class TerminalGuiChatViewController : IDisposable
             return;
         }
 
-        EnqueueUi(() => RenderPlan(payload));
+        EnqueueUi(() =>
+        {
+            SetPlanVisibility(true);
+            RenderPlan(payload);
+        });
     }
 
     private PlanPayload? ParsePlan(string json)
@@ -539,6 +560,7 @@ public class TerminalGuiChatViewController : IDisposable
         _planFrame.Title = "Plan";
         _planTitleLabel.Text = "Waiting for plan";
         _planItemsView.Text = "";
+        SetPlanVisibility(false);
     }
 
     private void SetStatus(string text)
@@ -584,6 +606,21 @@ public class TerminalGuiChatViewController : IDisposable
         {
             action();
         }
+    }
+
+    private void SetPlanVisibility(bool visible)
+    {
+        if (_planFrame == null || _historyView == null || _window == null)
+            return;
+
+        var planHeight = visible ? PlanExpandedHeight : PlanCollapsedHeight;
+        var reservedHeight = planHeight + InputHeight + StatusHeight;
+
+        _planFrame.Visible = visible;
+        _planFrame.Height = planHeight;
+        _historyView.Height = Dim.Fill(reservedHeight);
+
+        _window.SetNeedsDisplay();
     }
 
     private sealed record PlanPayload(string? Title, List<PlanEntry> Items);
