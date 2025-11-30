@@ -101,7 +101,6 @@ public class TerminalGuiChatViewController : IDisposable
     private void AttachChatService()
     {
         _chatService.OnTextReceived += OnTextReceived;
-        _chatService.OnReasoningReceived += OnReasoningReceived;
         _chatService.OnUsageReceived += OnUsageReceived;
         _chatService.OnToolCalled += OnToolCalled;
         _chatService.OnToolResult += OnToolResult;
@@ -113,7 +112,6 @@ public class TerminalGuiChatViewController : IDisposable
             return;
 
         _chatService.OnTextReceived -= OnTextReceived;
-        _chatService.OnReasoningReceived -= OnReasoningReceived;
         _chatService.OnUsageReceived -= OnUsageReceived;
         _chatService.OnToolCalled -= OnToolCalled;
         _chatService.OnToolResult -= OnToolResult;
@@ -241,7 +239,6 @@ public class TerminalGuiChatViewController : IDisposable
         }
 
         _lastUsage = null;
-        _historyManager?.ResetReasoningBlock();
         _assistantBlockOpen = false;
         StartThinkingAnimation();
         AppendHistoryBlock($"[You]: {userText}\n");
@@ -365,11 +362,6 @@ public class TerminalGuiChatViewController : IDisposable
         });
     }
 
-    private void OnReasoningReceived(string text)
-    {
-        EnqueueUi(() => AppendReasoning(text));
-    }
-
     private void OnUsageReceived(ChatTokenUsage usage)
     {
         _lastUsage = usage;
@@ -378,9 +370,6 @@ public class TerminalGuiChatViewController : IDisposable
     private void OnToolCalled(ToolCallEvent toolEvent)
     {
         if (_displayMode == ChatDisplayMode.Normal)
-            return;
-
-        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
             return;
 
         EnqueueUi(() =>
@@ -402,14 +391,6 @@ public class TerminalGuiChatViewController : IDisposable
 
     private void OnToolResult(ToolResultEvent toolEvent)
     {
-        if (string.Equals(toolEvent.ToolName, "share_reasoning", StringComparison.OrdinalIgnoreCase))
-        {
-            var text = GetReasoningText(toolEvent);
-            if (!string.IsNullOrWhiteSpace(text))
-                EnqueueUi(() => AppendReasoning(text));
-            return;
-        }
-
         if (string.Equals(toolEvent.ToolName, "set_plan", StringComparison.OrdinalIgnoreCase))
         {
             HandlePlan(toolEvent);
@@ -521,11 +502,6 @@ public class TerminalGuiChatViewController : IDisposable
         AppendHistoryBlock(text);
     }
 
-    private void AppendReasoning(string text)
-    {
-        _historyManager?.AppendReasoning(text);
-    }
-
     private void EnqueueUi(Action action)
     {
         if (Application.MainLoop != null)
@@ -542,16 +518,6 @@ public class TerminalGuiChatViewController : IDisposable
     {
         var modeLabel = _displayMode == ChatDisplayMode.Debug ? "Debug" : "Normal";
         return $"Grok CLI {_version} - {modeLabel} mode";
-    }
-
-    private string GetReasoningText(ToolResultEvent toolEvent)
-    {
-        var output = SummaryTextFormatter.Normalize(toolEvent.Result.Output ?? "");
-        if (!string.IsNullOrWhiteSpace(output))
-            return output;
-
-        var text = TryGetString(toolEvent.ArgumentsJson, "text");
-        return string.IsNullOrWhiteSpace(text) ? "" : SummaryTextFormatter.Normalize(text);
     }
 
     private string GetDurationText()
@@ -574,7 +540,6 @@ public class TerminalGuiChatViewController : IDisposable
 
         _conversation.Clear();
         _lastUsage = null;
-        _historyManager?.ResetReasoningBlock();
         _sessionStopwatch.Restart();
         _assistantBlockOpen = false;
 
