@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using GrokCLI.Models;
 using GrokCLI.Services;
@@ -77,11 +78,27 @@ if (HasApiKey())
 
 var serviceProvider = services.BuildServiceProvider();
 
-var ui = new SimpleTerminalUI();
 var chatService = HasApiKey()
     ? serviceProvider.GetRequiredService<IChatService>()
     : new DisabledChatService();
-var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion(), configPath);
+var useTerminalGui = true;
+
+if (useTerminalGui)
+{
+    var guiController = new TerminalGuiChatViewController(
+        chatService,
+        serviceProvider,
+        HasApiKey(),
+        displayMode,
+        GetVersion(),
+        configPath);
+
+    guiController.Run();
+}
+else
+{
+    var ui = new SimpleTerminalUI();
+    var controller = new SimpleChatViewController(chatService, ui, HasApiKey(), displayMode, GetVersion(), configPath);
 
 if (!HasApiKey())
 {
@@ -96,90 +113,50 @@ else
 
 ui.UpdateInputLine();
 
-while (ui.IsRunning)
-{
-    if (Console.KeyAvailable)
+    while (ui.IsRunning)
     {
-        var key = Console.ReadKey(true);
-
-        if (key.Key == ConsoleKey.Escape)
+        if (Console.KeyAvailable)
         {
-            if (controller.IsProcessing)
-            {
-                controller.CancelProcessing();
-            }
-            else
-            {
-                ui.ClearInput();
-            }
+            var key = Console.ReadKey(true);
 
-            continue;
-        }
-
-        if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
-        {
-            ui.InsertNewline();
-        }
-        else if (key.Key == ConsoleKey.Enter && HasApiKey())
-        {
-            var userInput = ui.GetCurrentInput()?.Trim();
-
-            if (!string.IsNullOrWhiteSpace(userInput) &&
-                (userInput.Equals("logout", StringComparison.OrdinalIgnoreCase)))
+            if (key.Key == ConsoleKey.Escape)
             {
-                ui.ClearInput();
-                ui.HideInputLine();
-                Console.WriteLine("[You]: logout");
-                Console.WriteLine("Logging out and clearing XAI_API_KEY...");
-                ClearApiKey(appConfig);
-                apiKey = null;
-                Console.WriteLine("XAI_API_KEY cleared. Please restart or set a new key to continue.");
-                ui.ShowInputLine();
-            }
-            else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
-            {
-                var command = "clear";
-
-                _ = Task.Run(async () =>
+                if (controller.IsProcessing)
                 {
-                    ui.HideInputLine();
-                    ui.ShowUserPrompt(userInput);
-
+                    controller.CancelProcessing();
+                }
+                else
+                {
                     ui.ClearInput();
-                    ui.SetProcessingStatus("executing...");
+                }
 
-                    var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
-                    var result = await shellExecutor.ExecuteAsync(command, 300);
-
-                    ui.SetProcessingStatus("");
-
-                    Console.WriteLine($"\n💻 [Command]: {command}");
-                    Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
-
-                    if (!string.IsNullOrEmpty(result.Output))
-                    {
-                        Console.WriteLine($"\n✅ [Output]:");
-                        Console.WriteLine(result.Output);
-                    }
-
-                    if (!string.IsNullOrEmpty(result.Error))
-                    {
-                        Console.WriteLine($"\n❌ [Error]:");
-                        Console.WriteLine(result.Error);
-                    }
-
-                    Console.WriteLine();
-                    ui.ShowInputLine();
-                });
+                continue;
             }
-            else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.StartsWith("/cmd ") || userInput.StartsWith("cmd ")))
-            {
-                var command = userInput.StartsWith("/cmd ")
-                    ? userInput.Substring(5).Trim()
-                    : userInput.Substring(4).Trim();
 
-                if (!string.IsNullOrWhiteSpace(command))
+            if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
+            {
+                ui.InsertNewline();
+            }
+            else if (key.Key == ConsoleKey.Enter && HasApiKey())
+            {
+                var userInput = ui.GetCurrentInput()?.Trim();
+
+                if (!string.IsNullOrWhiteSpace(userInput) &&
+                    (userInput.Equals("logout", StringComparison.OrdinalIgnoreCase)))
                 {
+                    ui.ClearInput();
+                    ui.HideInputLine();
+                    Console.WriteLine("[You]: logout");
+                    Console.WriteLine("Logging out and clearing XAI_API_KEY...");
+                    ClearApiKey(appConfig);
+                    apiKey = null;
+                    Console.WriteLine("XAI_API_KEY cleared. Please restart or set a new key to continue.");
+                    ui.ShowInputLine();
+                }
+                else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.Equals("clear", StringComparison.OrdinalIgnoreCase) || userInput.Equals("/clear", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var command = "clear";
+
                     _ = Task.Run(async () =>
                     {
                         ui.HideInputLine();
@@ -193,117 +170,158 @@ while (ui.IsRunning)
 
                         ui.SetProcessingStatus("");
 
-                        if (displayMode == ChatDisplayMode.Debug)
+                        Console.WriteLine($"\n💻 [Command]: {command}");
+                        Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
+
+                        if (!string.IsNullOrEmpty(result.Output))
                         {
-                            Console.WriteLine($"\n💻 [Command]: {command}");
-                            Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
-
-                            if (!string.IsNullOrEmpty(result.Output))
-                            {
-                                Console.WriteLine($"\n✅ [Output]:");
-                                Console.WriteLine(result.Output);
-                            }
-
-                            if (!string.IsNullOrEmpty(result.Error))
-                            {
-                                Console.WriteLine($"\n❌ [Error]:");
-                                Console.WriteLine(result.Error);
-                            }
+                            Console.WriteLine($"\n✅ [Output]:");
+                            Console.WriteLine(result.Output);
                         }
-                        else
+
+                        if (!string.IsNullOrEmpty(result.Error))
                         {
-                            Console.WriteLine($"\n● Run({command})");
-
-                            var success = result.ExitCode == 0;
-                            var body = success
-                                ? (!string.IsNullOrWhiteSpace(result.Output)
-                                    ? result.Output
-                                    : "Completed with no output")
-                                : (!string.IsNullOrWhiteSpace(result.Error)
-                                    ? result.Error
-                                    : (!string.IsNullOrWhiteSpace(result.Output)
-                                        ? result.Output
-                                        : "Command failed"));
-
-                            var lines = body.ReplaceLineEndings("\n").Split('\n');
-                            var color = success ? ConsoleColor.Green : ConsoleColor.Red;
-                            var previous = Console.ForegroundColor;
-                            Console.ForegroundColor = color;
-                            foreach (var line in lines)
-                            {
-                                Console.WriteLine($"⎿ {line}");
-                            }
-                            Console.ForegroundColor = previous;
+                            Console.WriteLine($"\n❌ [Error]:");
+                            Console.WriteLine(result.Error);
                         }
 
                         Console.WriteLine();
                         ui.ShowInputLine();
                     });
                 }
+                else if (!string.IsNullOrWhiteSpace(userInput) && (userInput.StartsWith("/cmd ") || userInput.StartsWith("cmd ")))
+                {
+                    var command = userInput.StartsWith("/cmd ")
+                        ? userInput.Substring(5).Trim()
+                        : userInput.Substring(4).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(command))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            ui.HideInputLine();
+                            ui.ShowUserPrompt(userInput);
+
+                            ui.ClearInput();
+                            ui.SetProcessingStatus("executing...");
+
+                            var shellExecutor = serviceProvider.GetRequiredService<IShellExecutor>();
+                            var result = await shellExecutor.ExecuteAsync(command, 300);
+
+                            ui.SetProcessingStatus("");
+
+                            if (displayMode == ChatDisplayMode.Debug)
+                            {
+                                Console.WriteLine($"\n💻 [Command]: {command}");
+                                Console.WriteLine($"📋 [Exit Code]: {result.ExitCode}");
+
+                                if (!string.IsNullOrEmpty(result.Output))
+                                {
+                                    Console.WriteLine($"\n✅ [Output]:");
+                                    Console.WriteLine(result.Output);
+                                }
+
+                                if (!string.IsNullOrEmpty(result.Error))
+                                {
+                                    Console.WriteLine($"\n❌ [Error]:");
+                                    Console.WriteLine(result.Error);
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"\n● Run({command})");
+
+                                var success = result.ExitCode == 0;
+                                var body = success
+                                    ? (!string.IsNullOrWhiteSpace(result.Output)
+                                        ? result.Output
+                                        : "Completed with no output")
+                                    : (!string.IsNullOrWhiteSpace(result.Error)
+                                        ? result.Error
+                                        : (!string.IsNullOrWhiteSpace(result.Output)
+                                            ? result.Output
+                                            : "Command failed"));
+
+                                var lines = body.ReplaceLineEndings("\n").Split('\n');
+                                var color = success ? ConsoleColor.Green : ConsoleColor.Red;
+                                var previous = Console.ForegroundColor;
+                                Console.ForegroundColor = color;
+                                foreach (var line in lines)
+                                {
+                                    Console.WriteLine($"⎿ {line}");
+                                }
+                                Console.ForegroundColor = previous;
+                            }
+
+                            Console.WriteLine();
+                            ui.ShowInputLine();
+                        });
+                    }
+                    else
+                    {
+                        ui.ClearInput();
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(userInput) &&
+                    (userInput.Equals("debug", StringComparison.OrdinalIgnoreCase) ||
+                     userInput.Equals("normal", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var targetMode = userInput.Equals("debug", StringComparison.OrdinalIgnoreCase)
+                        ? ChatDisplayMode.Debug
+                        : ChatDisplayMode.Normal;
+
+                    ui.HideInputLine();
+                    ui.ShowUserPrompt(userInput);
+                    ui.ClearInput();
+
+                    displayMode = targetMode;
+                    controller.SetDisplayMode(targetMode);
+
+                    ui.ShowInputLine();
+                }
                 else
                 {
-                    ui.ClearInput();
+                    _ = Task.Run(async () =>
+                    {
+                        await controller.SendMessageAsync();
+                    });
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(userInput) &&
-                (userInput.Equals("debug", StringComparison.OrdinalIgnoreCase) ||
-                 userInput.Equals("normal", StringComparison.OrdinalIgnoreCase)))
+            else
             {
-                var targetMode = userInput.Equals("debug", StringComparison.OrdinalIgnoreCase)
-                    ? ChatDisplayMode.Debug
-                    : ChatDisplayMode.Normal;
-
+                ui.HandleInput(key);
+            }
+        }
+        else
+        {
+            if (!HasApiKey())
+            {
                 ui.HideInputLine();
-                ui.ShowUserPrompt(userInput);
-                ui.ClearInput();
+                Console.Write("Enter XAI_API_KEY: ");
+                var entered = Console.ReadLine()?.Trim();
+                apiKey = PersistApiKeyIfProvided(appConfig, entered);
 
-                displayMode = targetMode;
-                controller.SetDisplayMode(targetMode);
+                if (HasApiKey())
+                {
+                    Console.WriteLine("API key saved. Restart the application to enable chat.");
+                }
+                else
+                {
+                    Console.WriteLine("No API key provided. Chat remains locked.");
+                }
 
                 ui.ShowInputLine();
             }
             else
             {
-                _ = Task.Run(async () =>
-                {
-                    await controller.SendMessageAsync();
-                });
+                Thread.Sleep(10);
             }
-        }
-        else
-        {
-            ui.HandleInput(key);
         }
     }
-    else
-    {
-        if (!HasApiKey())
-        {
-            ui.HideInputLine();
-            Console.Write("Enter XAI_API_KEY: ");
-            var entered = Console.ReadLine()?.Trim();
-            apiKey = PersistApiKeyIfProvided(appConfig, entered);
 
-            if (HasApiKey())
-            {
-                Console.WriteLine("API key saved. Restart the application to enable chat.");
-            }
-            else
-            {
-                Console.WriteLine("No API key provided. Chat remains locked.");
-            }
-
-            ui.ShowInputLine();
-        }
-        else
-        {
-            Thread.Sleep(10);
-        }
-    }
+    Console.WriteLine();
+    Console.CursorVisible = true;
 }
-
-Console.WriteLine();
-Console.CursorVisible = true;
 
 ChatDisplayMode ResolveDisplayMode(string[] args)
 {
@@ -350,8 +368,16 @@ string GetInstallDirectory()
 string GetVersion()
 {
     var assembly = typeof(Program).Assembly;
-    var info = assembly.GetName();
-    return info.Version?.ToString() ?? "1.0.0";
+    var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+
+    if (!string.IsNullOrWhiteSpace(informational))
+    {
+        var plusIndex = informational.IndexOf('+');
+        return plusIndex >= 0 ? informational[..plusIndex] : informational;
+    }
+
+    var version = assembly.GetName().Version;
+    return version?.ToString(3) ?? "1.0.0";
 }
 
 string? PersistApiKeyIfProvided(AppConfig? config, string? key)

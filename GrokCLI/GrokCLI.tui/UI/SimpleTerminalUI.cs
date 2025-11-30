@@ -18,6 +18,7 @@ public class SimpleTerminalUI
     private int _planLineCount = 0;
     private string? _planTitle;
     private List<PlanEntry> _planItems = new();
+    private bool _relocateRequested = true;
 
     public SimpleTerminalUI()
     {
@@ -34,6 +35,7 @@ public class SimpleTerminalUI
             if (_inputLineActive)
             {
                 ClearInputArea();
+                _relocateRequested = true;
             }
 
             Console.WriteLine(message);
@@ -60,6 +62,7 @@ public class SimpleTerminalUI
             if (_inputLineActive)
             {
                 ClearInputArea();
+                _relocateRequested = true;
             }
 
             Console.WriteLine();
@@ -171,8 +174,6 @@ public class SimpleTerminalUI
         {
             if (_inputLineActive)
             {
-                ClearPlanArea();
-                ClearInputArea();
                 DrawInputLine();
             }
         }
@@ -199,10 +200,18 @@ public class SimpleTerminalUI
 
     private void DrawInputLine()
     {
-        _planStartLine = Console.CursorTop;
-
         var planLines = BuildPlanLines();
         _planLineCount = planLines.Count;
+
+        if (_relocateRequested)
+        {
+            _planStartLine = Console.CursorTop;
+        }
+
+        _inputStartLine = _planStartLine + _planLineCount;
+
+        ClearPlanArea();
+        ClearInputArea();
 
         foreach (var line in planLines)
         {
@@ -234,6 +243,7 @@ public class SimpleTerminalUI
 
 
         PositionCursor();
+        _relocateRequested = false;
     }
 
     private void PositionCursor()
@@ -349,6 +359,7 @@ public class SimpleTerminalUI
             {
                 ClearInputArea();
                 _inputLineActive = false;
+                _relocateRequested = true;
             }
         }
     }
@@ -360,6 +371,7 @@ public class SimpleTerminalUI
             if (!_inputLineActive)
             {
                 _inputLineActive = true;
+                _relocateRequested = true;
                 DrawInputLine();
             }
         }
@@ -371,6 +383,7 @@ public class SimpleTerminalUI
         {
             _planTitle = string.IsNullOrWhiteSpace(title) ? "Grok Plan" : title;
             _planItems = items;
+            _relocateRequested = true;
 
             if (_inputLineActive)
             {
@@ -378,7 +391,6 @@ public class SimpleTerminalUI
             }
             else
             {
-                ClearPlanArea();
                 _planStartLine = Console.CursorTop;
                 var planLines = BuildPlanLines();
                 _planLineCount = planLines.Count;
@@ -390,6 +402,7 @@ public class SimpleTerminalUI
 
                 Console.CursorTop = _planStartLine + _planLineCount;
                 Console.CursorLeft = 0;
+                _relocateRequested = false;
             }
         }
     }
@@ -402,6 +415,7 @@ public class SimpleTerminalUI
             _planItems.Clear();
             ClearPlanArea();
             _planLineCount = 0;
+            _relocateRequested = true;
 
             if (_inputLineActive)
             {
